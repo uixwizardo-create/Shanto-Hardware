@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import LayoutWrapper from '@/components/layout-wrapper';
 import { useApp } from '@/context/AppContext';
 import { updateSettings } from '@/lib/db';
@@ -41,12 +42,23 @@ const PREDEFINED_LOGOS = [
 
 export default function SettingsPage() {
   const { t, settings, refreshSettings, user } = useApp();
+  const router = useRouter();
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = user?.role === 'admin';
+
+  // Staff হলে dashboard এ redirect করো
+  useEffect(() => {
+    if (user && !isAdmin) {
+      router.replace('/dashboard');
+    }
+  }, [user, isAdmin, router]);
+
+  // Admin না হলে কিছু render করো না
+  if (!user || !isAdmin) return null;
 
   const {
     register,

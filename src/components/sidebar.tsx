@@ -31,6 +31,8 @@ export default function Sidebar() {
 
   if (!user) return null;
 
+  const isAdmin = user?.role === 'admin';
+
   const menuItems = [
     {
       path: '/dashboard',
@@ -97,8 +99,9 @@ export default function Sidebar() {
       icon: SettingsIcon,
       labelEn: 'Settings',
       labelBn: 'সেটিংস',
+      adminOnly: true,
     },
-  ];
+  ].filter(item => !item.adminOnly || isAdmin);
 
   return (
     <div className={`flex flex-col bg-slate-900 border-r border-slate-805 text-slate-300 transition-all duration-300 ${collapsed ? 'w-16' : 'w-64'} shrink-0 sticky top-0 h-screen`}>
