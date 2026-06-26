@@ -3,38 +3,23 @@
 import React, { useState, useEffect } from 'react';
 import LayoutWrapper from '@/components/layout-wrapper';
 import { useApp } from '@/context/AppContext';
-import { fetchReports, fetchInventory, recordAdjustment } from '@/lib/db';
-import { StockTransaction, ItemSize, InventoryItem } from '@/lib/types';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
+import { fetchReports, fetchInventory } from '@/lib/db';
+import { StockTransaction, InventoryItem } from '@/lib/types';
 import {
   Calendar,
   AlertTriangle,
   Loader2,
-  DollarSign,
   Package,
   ShoppingCart,
   RefreshCcw,
   Sliders,
-  CheckCircle,
-  AlertCircle,
   Info,
   ArrowUpRight,
-  ArrowDownLeft,
-  ChevronDown
+  ArrowDownLeft
 } from 'lucide-react';
 
-const adjustSchema = z.object({
-  itemId: z.string().min(1, 'Please select an item / একটি পেইন্ট পণ্য নির্বাচন করুন'),
-  quantity: z.number().refine(val => val !== 0, 'Quantity cannot be zero / পরিমাণ শূন্য হতে পারবে না'),
-  notes: z.string().min(1, 'Please state adjustment reason / সমন্বয়ের কারণ উল্লেখ করুন').max(200, 'Notes cannot exceed 200 characters / অতিরিক্ত নোট ২০০ অক্ষরের বেশি হতে পারবে না'),
-});
-
-type AdjustFormValues = z.infer<typeof adjustSchema>;
-
 export default function ReportsPage() {
-  const { t, language, user } = useApp();
+  const { t, language } = useApp();
   const formatSize = (size: string) => {
     if (size === 'Gallon') return t('Gallon', 'গ্যালন');
     if (size === '2 Pound (.91L)') return t('2 Pound (.91L)', '২ পাউন্ড (.৯১ লি.)');
@@ -42,7 +27,6 @@ export default function ReportsPage() {
     if (size === 'Half Pound (200ML)') return t('Half Pound (200ML)', 'হাফ পাউন্ড (২০০ মিলি)');
     return size;
   };
-  const isAdmin = user?.role === 'admin';
 
   // Filters State (Default: Last 30 days)
   const [startDate, setStartDate] = useState(() => {
@@ -56,22 +40,13 @@ export default function ReportsPage() {
 
   // Data State
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
-  const [summary, setSummary] = useState({
-    salesCount: 0,
-    salesValue: 0,
-    stockInCount: 0,
-    lowStockCount: 0
-  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Adjustment form states
+  // Inventory items state for calculations
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(true);
-  const [adjustSubmitting, setAdjustSubmitting] = useState(false);
-  const [adjustSuccess, setAdjustSuccess] = useState<string | null>(null);
-  const [adjustError, setAdjustError] = useState<string | null>(null);
 
   const loadReportData = async () => {
     setLoading(true);
@@ -84,7 +59,6 @@ export default function ReportsPage() {
       
       const report = await fetchReports(filters);
       setTransactions(report.transactions);
-      setSummary(report.summary);
     } catch (err: any) {
       console.error(err);
       setError(t('Failed to load reports and logs.', 'রিপোর্ট এবং লগ লোড করতে ব্যর্থ হয়েছে।'));
@@ -97,7 +71,7 @@ export default function ReportsPage() {
     loadReportData();
   }, [startDate, endDate, refreshTrigger]);
 
-  // Load inventory items for adjustment dropdown
+  // Load inventory items
   useEffect(() => {
     async function loadItems() {
       try {
@@ -113,44 +87,107 @@ export default function ReportsPage() {
     loadItems();
   }, [refreshTrigger]);
 
-  // Adjustment Form Setup
-  const {
-    register: registerAdjust,
-    handleSubmit: handleSubmitAdjust,
-    reset: resetAdjust,
-    formState: { errors: errorsAdjust }
-  } = useForm<AdjustFormValues>({
-    resolver: zodResolver(adjustSchema),
-    defaultValues: {
-      itemId: '',
-      quantity: 0,
-      notes: ''
+  // Calculate Reports and Category data
+  // 1. Total unique products (items count)
+  const totalProductsCount = items.length;
+
+  // 2. Category aggregates
+  const categoriesMap: {
+    [id: string]: {
+      id: string;
+      name_en: string;
+      name_bn: string;
+      productsCount: number;
+      totalStock: number;
+      currentStock: number;
+      salesCount: number;
+    };
+  } = {};
+
+  // Initialize from items
+  items.forEach((item) => {
+    const catId = item.category_id || 'default';
+    const catNameEn = item.category_name_en || 'Other';
+    const catNameBn = item.category_name_bn || 'অন্যান্য';
+
+    if (!categoriesMap[catId]) {
+      categoriesMap[catId] = {
+        id: catId,
+        name_en: catNameEn,
+        name_bn: catNameBn,
+        productsCount: 0,
+        totalStock: 0,
+        currentStock: 0,
+        salesCount: 0,
+      };
+    }
+
+    categoriesMap[catId].productsCount += 1;
+    categoriesMap[catId].totalStock += (item.initial_stock || 0) + (item.total_stock_in || 0);
+    categoriesMap[catId].currentStock += item.current_stock || 0;
+  });
+
+  // Calculate top category, top color, and add sales to categories
+  const categorySales: { [id: string]: { name_en: string; name_bn: string; quantity: number } } = {};
+  const colorSales: { [name_en: string]: { name_bn: string; quantity: number } } = {};
+
+  transactions.forEach((tx) => {
+    if (tx.action_type === 'STOCK_OUT') {
+      const item = items.find((i) => i.id === tx.inventory_item_id);
+      if (item) {
+        // Category sales
+        const catId = item.category_id || 'default';
+        const catNameEn = item.category_name_en || 'Other';
+        const catNameBn = item.category_name_bn || 'অন্যান্য';
+        if (!categorySales[catId]) {
+          categorySales[catId] = { name_en: catNameEn, name_bn: catNameBn, quantity: 0 };
+        }
+        categorySales[catId].quantity += tx.quantity;
+
+        // Populate sales count in table map
+        if (categoriesMap[catId]) {
+          categoriesMap[catId].salesCount += tx.quantity;
+        } else {
+          categoriesMap[catId] = {
+            id: catId,
+            name_en: catNameEn,
+            name_bn: catNameBn,
+            productsCount: 0,
+            totalStock: 0,
+            currentStock: 0,
+            salesCount: tx.quantity,
+          };
+        }
+
+        // Color sales
+        const colorEn = item.color_name_en || 'Unknown';
+        const colorBn = item.color_name_bn || 'অজানা';
+        if (!colorSales[colorEn]) {
+          colorSales[colorEn] = { name_bn: colorBn, quantity: 0 };
+        }
+        colorSales[colorEn].quantity += tx.quantity;
+      }
     }
   });
 
-  const onAdjustSubmit = async (data: AdjustFormValues) => {
-    if (!user) return;
-    setAdjustSubmitting(true);
-    setAdjustError(null);
-    setAdjustSuccess(null);
-    try {
-      await recordAdjustment(data.itemId, data.quantity, user.id, data.notes);
-      setAdjustSuccess(t('Stock adjusted successfully.', 'পেইন্ট স্টক সফলভাবে সমন্বয় করা হয়েছে।'));
-      resetAdjust({ itemId: '', quantity: 0, notes: '' });
-      setRefreshTrigger(p => p + 1); // Reload report metrics and table list
-      setTimeout(() => setAdjustSuccess(null), 5000);
-    } catch (err: any) {
-      console.error(err);
-      setAdjustError(err.message || 'Failed to record adjustment.');
-    } finally {
-      setAdjustSubmitting(false);
+  // Find Top Category
+  let topCategory = { name_en: '-', name_bn: '-', quantity: 0 };
+  Object.values(categorySales).forEach((cat) => {
+    if (cat.quantity > topCategory.quantity) {
+      topCategory = cat;
     }
-  };
+  });
 
-  // Calculate average sale/ticket value
-  const avgOrderValue = summary.salesCount > 0 
-    ? (summary.salesValue / summary.salesCount).toFixed(2)
-    : '0.00';
+  // Find Top Color
+  let topColor = { name_en: '-', name_bn: '-', quantity: 0 };
+  Object.entries(colorSales).forEach(([colorEn, data]) => {
+    if (data.quantity > topColor.quantity) {
+      topColor = { name_en: colorEn, name_bn: data.name_bn, quantity: data.quantity };
+    }
+  });
+
+  const categoryTableData = Object.values(categoriesMap);
+  categoryTableData.sort((a, b) => b.salesCount - a.salesCount || a.name_en.localeCompare(b.name_en));
 
   return (
     <LayoutWrapper>
@@ -162,7 +199,7 @@ export default function ReportsPage() {
               {t('Reports & Log Manager', 'রিপোর্ট এবং লগ ম্যানেজার')}
             </h1>
             <p className="text-slate-500 text-sm mt-1">
-              {t('Perform stock adjustments, review aggregate summary metrics, and examine detailed audit trails.', 'পেইন্ট স্টক সমন্বয় করুন, পরিমাপক হিসাব দেখুন এবং বিস্তারিত লেনদেন অডিট লগ অনুসন্ধান করুন।')}
+              {t('Review aggregate summary metrics and examine detailed transaction audit logs.', 'পরিমাপক হিসাব দেখুন এবং বিস্তারিত লেনদেন অডিট লগ অনুসন্ধান করুন।')}
             </p>
           </div>
 
@@ -207,166 +244,111 @@ export default function ReportsPage() {
         )}
 
         {/* Aggregate Performance Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Revenue Card */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t('Counter Revenue', 'মোট বিক্রয় রাজস্ব')}</span>
-              <DollarSign className="w-5 h-5 text-emerald-600 bg-emerald-50 p-1 rounded-lg border border-emerald-100" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Total Products Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-start justify-between">
+            <div className="min-w-0 flex-1">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {t('Total Products', 'মোট প্রোডাক্ট')}
+              </span>
+              <h3 className="text-2xl font-bold text-slate-900 mt-2 font-mono">
+                {loadingItems ? '...' : totalProductsCount}
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-1 font-medium truncate">
+                {t('All unique product variations in stock', 'ইনভেন্টরিতে মোট পণ্যের সংখ্যা')}
+              </p>
             </div>
-            <h3 className="text-2xl font-bold text-slate-900 mt-2 font-mono">
-              ৳{loading ? '...' : summary.salesValue.toLocaleString()}
-            </h3>
-            <p className="text-[10px] text-slate-400 mt-1 font-medium">{t('For selected reporting period', 'নির্দিষ্ট সময়কালের বিক্রয় মূল্য')}</p>
+            <Package className="w-9 h-9 text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-100 shrink-0 ml-3" />
           </div>
 
-          {/* Sales Count Card */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t('Sales Count', 'মোট বিক্রয় রসিদ')}</span>
-              <ShoppingCart className="w-5 h-5 text-blue-600 bg-blue-50 p-1 rounded-lg border border-blue-100" />
+          {/* Top Category Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-start justify-between">
+            <div className="min-w-0 flex-1">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {t('Top Category', 'সেরা ক্যাটাগরি')}
+              </span>
+              <h3 className="text-lg md:text-xl font-bold text-slate-900 mt-2 truncate">
+                {loading ? '...' : (topCategory.quantity > 0 ? (language === 'en' ? topCategory.name_en : topCategory.name_bn) : '-')}
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-1 font-medium truncate">
+                {loading ? '...' : (topCategory.quantity > 0 ? t(`${topCategory.quantity} units sold`, `${topCategory.quantity} টি বিক্রি হয়েছে`) : t('No sales recorded', 'কোন বিক্রি নেই'))}
+              </p>
             </div>
-            <h3 className="text-2xl font-bold text-slate-900 mt-2 font-mono">
-              {loading ? '...' : summary.salesCount}
-            </h3>
-            <p className="text-[10px] text-slate-400 mt-1 font-medium">{t('Total sales transaction count', 'মোট বিক্রয় ভাউচারের সংখ্যা')}</p>
+            <ShoppingCart className="w-9 h-9 text-blue-600 bg-blue-50 p-2 rounded-xl border border-blue-100 shrink-0 ml-3" />
           </div>
 
-          {/* Avg Sales Card */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t('Avg Sales / Ticket', 'গড় বিক্রয় মূল্য')}</span>
-              <RefreshCcw className="w-5 h-5 text-cyan-600 bg-cyan-50 p-1 rounded-lg border border-cyan-100" />
+          {/* Top Color Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm flex items-start justify-between">
+            <div className="min-w-0 flex-1">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {t('Top Color', 'সেরা কালার')}
+              </span>
+              <h3 className="text-lg md:text-xl font-bold text-slate-900 mt-2 truncate">
+                {loading ? '...' : (topColor.quantity > 0 ? (language === 'en' ? topColor.name_en : topColor.name_bn) : '-')}
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-1 font-medium truncate">
+                {loading ? '...' : (topColor.quantity > 0 ? t(`${topColor.quantity} units sold`, `${topColor.quantity} টি বিক্রি হয়েছে`) : t('No sales recorded', 'কোন বিক্রি নেই'))}
+              </p>
             </div>
-            <h3 className="text-2xl font-bold text-slate-900 mt-2 font-mono">
-              ৳{loading ? '...' : parseFloat(avgOrderValue).toLocaleString()}
-            </h3>
-            <p className="text-[10px] text-slate-400 mt-1 font-medium">{t('Revenue divided by invoices count', 'প্রতি বিলে গড় বিক্রয় রাজস্ব')}</p>
-          </div>
-
-          {/* Stock In Card */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t('Stock In (Units)', 'স্টক ইন (ইউনিট)')}</span>
-              <Package className="w-5 h-5 text-teal-600 bg-teal-50 p-1 rounded-lg border border-teal-100" />
-            </div>
-            <h3 className="text-2xl font-bold text-slate-900 mt-2 font-mono">
-              {loading ? '...' : summary.stockInCount}
-            </h3>
-            <p className="text-[10px] text-slate-400 mt-1 font-medium">{t('Total quantity added to inventory', 'মোট আমদানিকৃত স্টক পরিমাণ')}</p>
+            <Sliders className="w-9 h-9 text-cyan-600 bg-cyan-50 p-2 rounded-xl border border-cyan-100 shrink-0 ml-3" />
           </div>
         </div>
 
-        {/* Stock Adjustment Form (Admin only) */}
-        {isAdmin && (
+        {/* Category Summary Table */}
+        <div className="space-y-3">
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <Package className="w-5 h-5 text-emerald-600" />
+            <span>{t('Category Summary Table', 'ক্যাটাগরি ভিত্তিক সারাংশ')}</span>
+          </h2>
+
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-6 py-4.5 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
-              <Sliders className="w-5 h-5 text-emerald-600" />
-              <div>
-                <h3 className="font-bold text-slate-800">{t('Log Stock Adjustment', 'স্টক সমন্বয় নিবন্ধন')}</h3>
-                <p className="text-xs text-slate-500 mt-0.5">{t('Correct stock level discrepancies or log physical paint container adjustments.', 'স্টক সংখ্যার অসঙ্গতি ঠিক করুন অথবা শারীরিক রঙ ভাঙা/নষ্ট বন্টন সমন্বয় করুন।')}</p>
-              </div>
-            </div>
-
-            <div className="p-6">
-              {adjustSuccess && (
-                <div className="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-sm flex items-center gap-2.5">
-                  <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
-                  <span>{adjustSuccess}</span>
+            <div className="overflow-x-auto">
+              {loadingItems ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-2">
+                  <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+                  <p className="text-slate-400 text-xs">{t('Loading category data...', 'ক্যাটাগরি ডাটা লোড হচ্ছে...')}</p>
                 </div>
+              ) : categoryTableData.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-slate-405">
+                  <p className="font-semibold">{t('No categories found', 'কোন ক্যাটাগরি পাওয়া যায়নি')}</p>
+                </div>
+              ) : (
+                <table className="w-full border-collapse text-left text-xs md:text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap">
+                      <th className="p-4 pl-6">{t('Category', 'ক্যাটাগরি')}</th>
+                      <th className="p-4 text-right">{t('Products', 'প্রোডাক্টস')}</th>
+                      <th className="p-4 text-right">{t('Stock', 'স্টক')}</th>
+                      <th className="p-4 text-right">{t('Sales', 'বিক্রি')}</th>
+                      <th className="p-4 text-right pr-6">{t('Current Stock', 'বর্তমান স্টক')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {categoryTableData.map((cat) => (
+                      <tr key={cat.id} className="hover:bg-slate-50/50 transition-colors whitespace-nowrap">
+                        <td className="p-4 pl-6 font-semibold text-slate-800">
+                          {language === 'en' ? cat.name_en : cat.name_bn}
+                        </td>
+                        <td className="p-4 text-right font-mono font-medium">
+                          {cat.productsCount}
+                        </td>
+                        <td className="p-4 text-right font-mono font-medium">
+                          {cat.totalStock}
+                        </td>
+                        <td className="p-4 text-right font-mono font-bold text-emerald-600">
+                          {cat.salesCount}
+                        </td>
+                        <td className="p-4 text-right pr-6 font-mono font-bold text-slate-700">
+                          {cat.currentStock}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
-
-              {adjustError && (
-                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm flex items-center gap-2.5">
-                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
-                  <span>{adjustError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmitAdjust(onAdjustSubmit)} className="grid grid-cols-1 md:grid-cols-3 gap-5 items-end">
-                {/* Item Select */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                    {t('Select Paint Item', 'পেইন্ট পণ্য')}
-                  </label>
-                  {loadingItems ? (
-                    <div className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl flex items-center px-3">
-                      <Loader2 className="w-4 h-4 text-slate-400 animate-spin mr-2" />
-                      <span className="text-slate-400 text-xs">{t('Loading...', 'লোড হচ্ছে...')}</span>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      <select
-                        {...registerAdjust('itemId')}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 text-xs focus:outline-none focus:border-emerald-500 cursor-pointer appearance-none"
-                      >
-                        <option value="">-- {t('Choose Paint Item', 'পণ্য নির্বাচন')} --</option>
-                        {items.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            #{item.serial_no} {item.full_color_name} ({formatSize(item.size)}) - {t('Stock', 'স্টক')}: {item.current_stock}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="w-4 h-4 text-slate-400 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    </div>
-                  )}
-                  {errorsAdjust.itemId && (
-                    <span className="text-red-500 text-[10px] mt-1 block">{errorsAdjust.itemId.message}</span>
-                  )}
-                </div>
-
-                {/* Quantity */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5 flex items-center justify-between">
-                    <span>{t('Adjustment Count', 'সমন্বয়ের সংখ্যা')}</span>
-                    <span className="text-[10px] text-slate-450 font-medium normal-case">
-                      {t('(+ to add, - to subtract)', '(যোগ করতে +, কমাতে -)')}
-                    </span>
-                  </label>
-                  <input
-                    type="number"
-                    {...registerAdjust('quantity', { valueAsNumber: true })}
-                    placeholder={t('e.g. -2 or 5', 'যেমন: -২ অথবা ৫')}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
-                  />
-                  {errorsAdjust.quantity && (
-                    <span className="text-red-500 text-[10px] mt-1 block">{errorsAdjust.quantity.message}</span>
-                  )}
-                </div>
-
-                {/* Reason */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                    {t('Adjustment Reason', 'সমন্বয়ের কারণ')}
-                  </label>
-                  <div className="flex gap-3">
-                    <input
-                      type="text"
-                      {...registerAdjust('notes')}
-                      placeholder={t('e.g. Broken seal, Seeding error correction', 'যেমন: ক্যান নষ্ট ছিল, ভুল প্রারম্ভিক মজুদ ইত্যাদি')}
-                      className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    />
-                    <button
-                      type="submit"
-                      disabled={adjustSubmitting}
-                      className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold px-4 py-2.5 rounded-xl transition-all shadow flex items-center justify-center gap-1 shrink-0 cursor-pointer disabled:opacity-55"
-                    >
-                      {adjustSubmitting ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Sliders className="w-3.5 h-3.5" />
-                      )}
-                      <span>{t('Apply', 'প্রয়োগ')}</span>
-                    </button>
-                  </div>
-                  {errorsAdjust.notes && (
-                    <span className="text-red-500 text-[10px] mt-1 block">{errorsAdjust.notes.message}</span>
-                  )}
-                </div>
-              </form>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Tabular Transaction Report Logs */}
         <div className="space-y-3">
