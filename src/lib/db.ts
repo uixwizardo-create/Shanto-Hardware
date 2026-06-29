@@ -121,6 +121,43 @@ function mapStockTransaction(t: any): StockTransaction {
   };
 }
 
+async function populateDynamicTransactionPrice(tx: StockTransaction): Promise<StockTransaction> {
+  if (!tx.item) return tx;
+  try {
+    const prices = await fetchPrices();
+    const pricing = prices.find(p => 
+      p.category_id === tx.item!.category_id && 
+      (p.size_name_en === tx.item!.size || p.size_name_bn === tx.item!.size)
+    );
+    if (pricing) {
+      tx.item.price = pricing.selling_price;
+    }
+  } catch (e) {
+    console.warn('Error resolving dynamic price:', e);
+  }
+  return tx;
+}
+
+async function populateDynamicTransactionPrices(txs: StockTransaction[]): Promise<StockTransaction[]> {
+  try {
+    const prices = await fetchPrices();
+    txs.forEach(tx => {
+      if (tx.item) {
+        const pricing = prices.find(p => 
+          p.category_id === tx.item!.category_id && 
+          (p.size_name_en === tx.item!.size || p.size_name_bn === tx.item!.size)
+        );
+        if (pricing) {
+          tx.item.price = pricing.selling_price;
+        }
+      }
+    });
+  } catch (e) {
+    console.warn('Error resolving dynamic prices for list:', e);
+  }
+  return txs;
+}
+
 /**
  * ----------------------------------------------------
  * LOCAL STORAGE (DEMO MODE) HELPERS
@@ -193,6 +230,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000001',
         size_id: '33333333-3333-3333-3333-000000000001',
         buying_price: 1800,
+        prev_buying_price: 1600,
         selling_price: 2200,
         created_at: new Date().toISOString()
       },
@@ -201,6 +239,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000002',
         size_id: '33333333-3333-3333-3333-000000000001',
         buying_price: 2000,
+        prev_buying_price: 1800,
         selling_price: 2400,
         created_at: new Date().toISOString()
       },
@@ -209,6 +248,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000002',
         size_id: '33333333-3333-3333-3333-000000000002',
         buying_price: 450,
+        prev_buying_price: 400,
         selling_price: 550,
         created_at: new Date().toISOString()
       },
@@ -217,6 +257,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000002',
         size_id: '33333333-3333-3333-3333-000000000003',
         buying_price: 250,
+        prev_buying_price: 220,
         selling_price: 320,
         created_at: new Date().toISOString()
       },
@@ -225,6 +266,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000002',
         size_id: '33333333-3333-3333-3333-000000000004',
         buying_price: 120,
+        prev_buying_price: 100,
         selling_price: 160,
         created_at: new Date().toISOString()
       },
@@ -233,6 +275,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000003',
         size_id: '33333333-3333-3333-3333-000000000001',
         buying_price: 1500,
+        prev_buying_price: 1350,
         selling_price: 1900,
         created_at: new Date().toISOString()
       },
@@ -241,6 +284,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000004',
         size_id: '33333333-3333-3333-3333-000000000001',
         buying_price: 1200,
+        prev_buying_price: 1050,
         selling_price: 1500,
         created_at: new Date().toISOString()
       },
@@ -249,6 +293,7 @@ export function initializeDemoData(force = false) {
         category_id: '22222222-2222-2222-2222-000000000006',
         size_id: '33333333-3333-3333-3333-000000000001',
         buying_price: 1100,
+        prev_buying_price: 980,
         selling_price: 1400,
         created_at: new Date().toISOString()
       }
@@ -1019,6 +1064,8 @@ function getLocalInventoryItems(): InventoryItem[] {
   const items = getLocalData<Omit<InventoryItem, 'current_stock' | 'total_stock_in' | 'total_stock_out' | 'total_adjustments' | 'status' | 'color_name' | 'min_stock' | 'price'>[]>('shanto_inventory', []);
   const transactions = getLocalData<StockTransaction[]>('shanto_transactions', []);
   const categories = getLocalData<Category[]>('shanto_categories', []);
+  const prices = getLocalData<Pricing[]>('shanto_prices', []);
+  const sizes = getLocalData<Size[]>('shanto_sizes', []);
   
   return items.map((item, index) => {
     const itemTransactions = transactions.filter(t => t.inventory_item_id === item.id);
@@ -1048,7 +1095,7 @@ function getLocalInventoryItems(): InventoryItem[] {
     
     const category = categories.find(c => c.id === item.category_id);
     
-    return mapInventoryItem({
+    const mapped = mapInventoryItem({
       ...item,
       serial_no: item.serial_no || (index + 1),
       current_stock,
@@ -1060,6 +1107,18 @@ function getLocalInventoryItems(): InventoryItem[] {
       category_name_bn: category ? category.name_bn : undefined,
       status
     });
+
+    const pricing = prices.find(p => {
+      const sz = sizes.find(s => s.id === p.size_id);
+      return p.category_id === item.category_id && 
+             sz && (sz.name_en === item.size || sz.name_bn === item.size);
+    });
+
+    if (pricing) {
+      mapped.price = pricing.selling_price;
+    }
+
+    return mapped;
   });
 }
 
@@ -1080,6 +1139,7 @@ function populateLocalTransaction(t: StockTransaction): StockTransaction {
       color_name_bn: item.color_name_bn, 
       full_color_name: item.full_color_name, 
       size: item.size,
+      category_id: item.category_id || null,
       color_name: item.full_color_name,
       price: SIZE_PRICES[item.size as ItemSize] || 10.00
     } : undefined,
@@ -1204,6 +1264,22 @@ export async function fetchInventory(filters?: InventoryFilter): Promise<Invento
       items = items.filter(item => item.category_id === filters.categoryId);
     }
     
+    try {
+      const prices = await fetchPrices();
+      items = items.map(item => {
+        const pricing = prices.find(p => 
+          p.category_id === item.category_id && 
+          (p.size_name_en === item.size || p.size_name_bn === item.size)
+        );
+        if (pricing) {
+          return { ...item, price: pricing.selling_price };
+        }
+        return item;
+      });
+    } catch (e) {
+      console.warn('Error fetching prices in fetchInventory Demo Mode fallback:', e);
+    }
+
     return items;
   } else {
     // Ensure all items are assigned to Enamel in Supabase
@@ -1242,7 +1318,23 @@ export async function fetchInventory(filters?: InventoryFilter): Promise<Invento
       throw error;
     }
     
-    return (data as any[]).map(mapInventoryItem);
+    const mappedItems = (data as any[]).map(mapInventoryItem);
+    try {
+      const prices = await fetchPrices();
+      return mappedItems.map(item => {
+        const pricing = prices.find(p => 
+          p.category_id === item.category_id && 
+          (p.size_name_en === item.size || p.size_name_bn === item.size)
+        );
+        if (pricing) {
+          return { ...item, price: pricing.selling_price };
+        }
+        return item;
+      });
+    } catch (e) {
+      console.warn('Error fetching prices in fetchInventory Supabase:', e);
+      return mappedItems;
+    }
   }
 }
 
@@ -1260,7 +1352,8 @@ export async function addStock(
   }
 
   if (isDemoMode) {
-    return insertLocalTransaction(itemId, 'STOCK_IN', quantity, userId, notes || null);
+    const tx = insertLocalTransaction(itemId, 'STOCK_IN', quantity, userId, notes || null);
+    return populateDynamicTransactionPrice(tx);
   } else {
     const { data, error } = await supabase!
       .from('stock_transactions')
@@ -1281,7 +1374,7 @@ export async function addStock(
         notes,
         created_by,
         created_at,
-        item:inventory_items(color_name_en, color_name_bn, full_color_name, size),
+        item:inventory_items(color_name_en, color_name_bn, full_color_name, size, category_id),
         profile:profiles(email, name, role)
       `)
       .single();
@@ -1290,7 +1383,8 @@ export async function addStock(
       console.error('Error adding stock in Supabase:', error);
       throw error;
     }
-    return mapStockTransaction(data);
+    const tx = mapStockTransaction(data);
+    return populateDynamicTransactionPrice(tx);
   }
 }
 
@@ -1308,7 +1402,8 @@ export async function recordSale(
   }
 
   if (isDemoMode) {
-    return insertLocalTransaction(itemId, 'STOCK_OUT', quantity, userId, notes || null);
+    const tx = insertLocalTransaction(itemId, 'STOCK_OUT', quantity, userId, notes || null);
+    return populateDynamicTransactionPrice(tx);
   } else {
     const { data, error } = await supabase!
       .from('stock_transactions')
@@ -1329,7 +1424,7 @@ export async function recordSale(
         notes,
         created_by,
         created_at,
-        item:inventory_items(color_name_en, color_name_bn, full_color_name, size),
+        item:inventory_items(color_name_en, color_name_bn, full_color_name, size, category_id),
         profile:profiles(email, name, role)
       `)
       .single();
@@ -1341,7 +1436,8 @@ export async function recordSale(
       }
       throw new Error(error.message || 'Failed to record sale due to database constraint.');
     }
-    return mapStockTransaction(data);
+    const tx = mapStockTransaction(data);
+    return populateDynamicTransactionPrice(tx);
   }
 }
 
@@ -1359,7 +1455,8 @@ export async function recordAdjustment(
   }
 
   if (isDemoMode) {
-    return insertLocalTransaction(itemId, 'ADJUSTMENT', quantity, userId, notes || null);
+    const tx = insertLocalTransaction(itemId, 'ADJUSTMENT', quantity, userId, notes || null);
+    return populateDynamicTransactionPrice(tx);
   } else {
     const { data, error } = await supabase!
       .from('stock_transactions')
@@ -1380,7 +1477,7 @@ export async function recordAdjustment(
         notes,
         created_by,
         created_at,
-        item:inventory_items(color_name_en, color_name_bn, full_color_name, size),
+        item:inventory_items(color_name_en, color_name_bn, full_color_name, size, category_id),
         profile:profiles(email, name, role)
       `)
       .single();
@@ -1392,7 +1489,8 @@ export async function recordAdjustment(
       }
       throw new Error(error.message || 'Failed to record adjustment.');
     }
-    return mapStockTransaction(data);
+    const tx = mapStockTransaction(data);
+    return populateDynamicTransactionPrice(tx);
   }
 }
 
@@ -1400,6 +1498,7 @@ export async function recordAdjustment(
  * 5. Fetch Transaction Logs with optional filtering
  */
 export async function fetchTransactionLogs(filters?: ReportFilter): Promise<StockTransaction[]> {
+  let txs: StockTransaction[] = [];
   if (isDemoMode) {
     initializeDemoData();
     const transactions = getLocalData<StockTransaction[]>('shanto_transactions', []);
@@ -1434,7 +1533,7 @@ export async function fetchTransactionLogs(filters?: ReportFilter): Promise<Stoc
 
     // Sort chronologically desc
     populated.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    return populated.map(mapStockTransaction);
+    txs = populated.map(mapStockTransaction);
   } else {
     let query = supabase!
       .from('stock_transactions')
@@ -1448,7 +1547,7 @@ export async function fetchTransactionLogs(filters?: ReportFilter): Promise<Stoc
         notes,
         created_by,
         created_at,
-        item:inventory_items!inner(color_name_en, color_name_bn, full_color_name, size),
+        item:inventory_items!inner(color_name_en, color_name_bn, full_color_name, size, category_id),
         profile:profiles(email, name, role)
       `)
       .order('created_at', { ascending: false });
@@ -1476,8 +1575,9 @@ export async function fetchTransactionLogs(filters?: ReportFilter): Promise<Stoc
       console.error('Error fetching transactions from Supabase:', error);
       throw error;
     }
-    return (data as any[]).map(mapStockTransaction);
+    txs = (data as any[]).map(mapStockTransaction);
   }
+  return populateDynamicTransactionPrices(txs);
 }
 
 /**
@@ -1497,9 +1597,17 @@ export async function getDashboardSummaryMetrics(): Promise<DashboardSummary> {
     const outTxs = transactions.filter(t => t.action_type === 'STOCK_OUT');
     const totalSalesCount = outTxs.length;
     
+    const prices = await fetchPrices();
     const totalSalesValue = outTxs.reduce((sum, t) => {
       const it = items.find(i => i.id === t.inventory_item_id);
-      const price = it ? SIZE_PRICES[it.size] : 10.00;
+      let price = 10.00;
+      if (it) {
+        const pricing = prices.find(p => 
+          p.category_id === it.category_id && 
+          (p.size_name_en === it.size || p.size_name_bn === it.size)
+        );
+        price = pricing ? pricing.selling_price : (SIZE_PRICES[it.size] || 10.00);
+      }
       return sum + (t.quantity * price);
     }, 0);
 
@@ -1535,15 +1643,26 @@ export async function getDashboardSummaryMetrics(): Promise<DashboardSummary> {
     // 3. Fetch sales transactions to compute sales count and value
     const { data: salesData, error: err3 } = await supabase!
       .from('stock_transactions')
-      .select('quantity, item:inventory_items(size)')
+      .select('quantity, item:inventory_items(size, category_id)')
       .eq('action_type', 'STOCK_OUT');
 
     if (err3) throw err3;
 
+    const prices = await fetchPrices();
     const totalSalesCount = salesData.length;
-    const totalSalesValue = (salesData as unknown as { quantity: number; item: { size: string } | null }[]).reduce((sum, t) => {
+    const totalSalesValue = (salesData as unknown as { quantity: number; item: { size: string; category_id: string | null } | null }[]).reduce((sum, t) => {
       const size = (t.item?.size || 'Gallon') as ItemSize;
-      const price = SIZE_PRICES[size] || 10.00;
+      const category_id = t.item?.category_id;
+      let price = SIZE_PRICES[size] || 10.00;
+      if (category_id) {
+        const pricing = prices.find(p => 
+          p.category_id === category_id && 
+          (p.size_name_en === size || p.size_name_bn === size)
+        );
+        if (pricing) {
+          price = pricing.selling_price;
+        }
+      }
       return sum + (t.quantity * price);
     }, 0);
 
@@ -1595,11 +1714,22 @@ export async function fetchReports(filters?: ReportFilter): Promise<{
     }
   }
 
+  const prices = await fetchPrices();
   const sales = transactions.filter(t => t.action_type === 'STOCK_OUT');
   const salesCount = sales.length;
   const salesValue = sales.reduce((sum, t) => {
     const size = t.item?.size || 'Gallon';
-    const price = SIZE_PRICES[size] || 10.00;
+    const category_id = t.item?.category_id;
+    let price = SIZE_PRICES[size] || 10.00;
+    if (category_id) {
+      const pricing = prices.find(p => 
+        p.category_id === category_id && 
+        (p.size_name_en === size || p.size_name_bn === size)
+      );
+      if (pricing) {
+        price = pricing.selling_price;
+      }
+    }
     return sum + (t.quantity * price);
   }, 0);
   
@@ -2489,6 +2619,7 @@ function addLocalPriceFallback(
     category_id: categoryId,
     size_id: sizeId,
     buying_price: buyingPrice,
+    prev_buying_price: 0,
     selling_price: sellingPrice,
     created_at: new Date().toISOString()
   };
@@ -2522,9 +2653,13 @@ function updateLocalPriceFallback(
     throw new Error('Pricing record not found.');
   }
   
+  const current = prices[idx];
+  const prev_buying_price = current.buying_price !== buyingPrice ? current.buying_price : (current.prev_buying_price ?? 0);
+  
   prices[idx] = {
-    ...prices[idx],
+    ...current,
     buying_price: buyingPrice,
+    prev_buying_price,
     selling_price: sellingPrice
   };
   
@@ -2569,6 +2704,7 @@ export async function fetchPrices(): Promise<Pricing[]> {
           category_id,
           size_id,
           buying_price,
+          prev_buying_price,
           selling_price,
           created_at,
           categories (
@@ -2597,6 +2733,7 @@ export async function fetchPrices(): Promise<Pricing[]> {
         category_id: p.category_id,
         size_id: p.size_id,
         buying_price: Number(p.buying_price),
+        prev_buying_price: Number(p.prev_buying_price),
         selling_price: Number(p.selling_price),
         category_name_en: p.categories?.name_en,
         category_name_bn: p.categories?.name_bn,
@@ -2653,6 +2790,7 @@ export async function addPrice(
           category_id: categoryId,
           size_id: sizeId,
           buying_price: buyingPrice,
+          prev_buying_price: 0.00,
           selling_price: sellingPrice
         })
         .select(`
@@ -2660,6 +2798,7 @@ export async function addPrice(
           category_id,
           size_id,
           buying_price,
+          prev_buying_price,
           selling_price,
           created_at,
           categories (
@@ -2689,6 +2828,7 @@ export async function addPrice(
         category_id: p.category_id,
         size_id: p.size_id,
         buying_price: Number(p.buying_price),
+        prev_buying_price: Number(p.prev_buying_price),
         selling_price: Number(p.selling_price),
         category_name_en: p.categories?.name_en,
         category_name_bn: p.categories?.name_bn,
@@ -2717,10 +2857,32 @@ export async function updatePrice(
     return updateLocalPriceFallback(id, buyingPrice, sellingPrice, categories, sizes);
   } else {
     try {
+      // 1. Fetch current price record
+      const { data: current, error: fetchErr } = await supabase!
+        .from('pricing')
+        .select('buying_price, prev_buying_price')
+        .eq('id', id)
+        .single();
+        
+      if (fetchErr) {
+        if (isMissingTableError(fetchErr)) {
+          console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+          const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+          return updateLocalPriceFallback(id, buyingPrice, sellingPrice, categories, sizes);
+        }
+        throw fetchErr;
+      }
+      
+      const currentBuyingPrice = Number(current.buying_price);
+      const currentPrevBuyingPrice = Number(current.prev_buying_price);
+      const newPrevBuyingPrice = currentBuyingPrice !== buyingPrice ? currentBuyingPrice : currentPrevBuyingPrice;
+
+      // 2. Perform update
       const { data, error } = await supabase!
         .from('pricing')
         .update({
           buying_price: buyingPrice,
+          prev_buying_price: newPrevBuyingPrice,
           selling_price: sellingPrice
         })
         .eq('id', id)
@@ -2729,6 +2891,7 @@ export async function updatePrice(
           category_id,
           size_id,
           buying_price,
+          prev_buying_price,
           selling_price,
           created_at,
           categories (
@@ -2758,6 +2921,7 @@ export async function updatePrice(
         category_id: p.category_id,
         size_id: p.size_id,
         buying_price: Number(p.buying_price),
+        prev_buying_price: Number(p.prev_buying_price),
         selling_price: Number(p.selling_price),
         category_name_en: p.categories?.name_en,
         category_name_bn: p.categories?.name_bn,

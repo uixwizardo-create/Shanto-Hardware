@@ -18,7 +18,10 @@ import {
   Loader2,
   X,
   Info,
-  ChevronDown
+  ChevronDown,
+  Search,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 const pricingSchema = z.object({
@@ -47,6 +50,83 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [sizeFilter, setSizeFilter] = useState('all');
+
+  // Price visibility masking state
+  const [visiblePrices, setVisiblePrices] = useState<Set<string>>(new Set());
+
+  const togglePriceVisibility = (id: string) => {
+    setVisiblePrices(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Generate Cartesian Product of all Categories & Sizes, resolving database prices where exists
+  const combinedPrices = React.useMemo(() => {
+    if (categories.length === 0 || sizes.length === 0) return [];
+    
+    const list: Pricing[] = [];
+    categories.forEach(cat => {
+      sizes.forEach(sz => {
+        const existing = prices.find(p => p.category_id === cat.id && p.size_id === sz.id);
+        if (existing) {
+          list.push(existing);
+        } else {
+          list.push({
+            id: `placeholder-${cat.id}-${sz.id}`,
+            category_id: cat.id,
+            size_id: sz.id,
+            buying_price: 0,
+            prev_buying_price: 0,
+            selling_price: 0,
+            category_name_en: cat.name_en,
+            category_name_bn: cat.name_bn,
+            size_name_en: sz.name_en,
+            size_name_bn: sz.name_bn,
+            created_at: new Date().toISOString()
+          });
+        }
+      });
+    });
+    return list;
+  }, [categories, sizes, prices]);
+
+  // Dynamic filtered prices based on combined list
+  const filteredPrices = combinedPrices.filter(p => {
+    // 1. Search Query
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      const matchCatEn = p.category_name_en?.toLowerCase().includes(q) || false;
+      const matchCatBn = p.category_name_bn?.toLowerCase().includes(q) || false;
+      const matchSizeEn = p.size_name_en?.toLowerCase().includes(q) || false;
+      const matchSizeBn = p.size_name_bn?.toLowerCase().includes(q) || false;
+      if (!matchCatEn && !matchCatBn && !matchSizeEn && !matchSizeBn) {
+        return false;
+      }
+    }
+    
+    // 2. Category Filter
+    if (categoryFilter !== 'all' && p.category_id !== categoryFilter) {
+      return false;
+    }
+    
+    // 3. Size Filter
+    if (sizeFilter !== 'all' && p.size_id !== sizeFilter) {
+      return false;
+    }
+    
+    return true;
+  });
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -169,8 +249,13 @@ export default function PricingPage() {
     setIsSubmitting(true);
     setError(null);
     try {
-      await updatePrice(priceToEdit.id, data.buyingPrice, data.sellingPrice);
-      setSuccessMsg(t('Pricing record updated successfully.', 'মূল্য তালিকা রেকর্ড সফলভাবে আপডেট করা হয়েছে।'));
+      if (priceToEdit.id.startsWith('placeholder-')) {
+        await addPrice(priceToEdit.category_id, priceToEdit.size_id, data.buyingPrice, data.sellingPrice);
+        setSuccessMsg(t('Pricing record added successfully.', 'মূল্য তালিকা রেকর্ড সফলভাবে যোগ করা হয়েছে।'));
+      } else {
+        await updatePrice(priceToEdit.id, data.buyingPrice, data.sellingPrice);
+        setSuccessMsg(t('Pricing record updated successfully.', 'মূল্য তালিকা রেকর্ড সফলভাবে আপডেট করা হয়েছে।'));
+      }
       resetEdit();
       setIsEditModalOpen(false);
       setPriceToEdit(null);
@@ -249,6 +334,72 @@ export default function PricingPage() {
           </div>
         )}
 
+        {/* Filters Section */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row gap-4 justify-between items-center w-full">
+          {/* Left Side: Search */}
+          <div className="relative w-full md:max-w-md">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <Search className="w-4 h-4" />
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('Search by category or size...', 'ক্যাটাগরি বা সাইজ দিয়ে খুঁজুন...')}
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-sm pl-10 pr-10 py-2.5 rounded-xl outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-650 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Right Side: Category and Size Selects */}
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            {/* Category Select */}
+            <div className="relative w-full sm:w-48">
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
+              >
+                <option value="all">{t('All Categories', 'সব ক্যাটাগরি')}</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {language === 'en' ? cat.name_en : (cat.name_bn || cat.name_en)}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400">
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+
+            {/* Size Select */}
+            <div className="relative w-full sm:w-48">
+              <select
+                value={sizeFilter}
+                onChange={(e) => setSizeFilter(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
+              >
+                <option value="all">{t('All Sizes', 'সব সাইজ')}</option>
+                {sizes.map((sz) => (
+                  <option key={sz.id} value={sz.id}>
+                    {language === 'en' ? sz.name_en : (sz.name_bn || sz.name_en)}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400">
+                <ChevronDown className="w-4 h-4" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Pricing List Table */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden w-full">
           <div className="overflow-x-auto">
@@ -257,10 +408,14 @@ export default function PricingPage() {
                 <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
                 <p className="text-slate-400 text-sm">{t('Loading pricing records...', 'মূল্য তালিকা লোড হচ্ছে...')}</p>
               </div>
-            ) : prices.length === 0 ? (
+            ) : filteredPrices.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
                 <Info className="w-12 h-12 text-slate-300" />
-                <p className="font-semibold text-slate-650">{t('No pricing records found', 'কোনো মূল্য তালিকা রেকর্ড পাওয়া যায়নি')}</p>
+                <p className="font-semibold text-slate-650">
+                  {prices.length === 0 
+                    ? t('No pricing records found', 'কোনো মূল্য তালিকা রেকর্ড পাওয়া যায়নি')
+                    : t('No pricing records found matching your filters', 'আপনার ফিল্টার অনুযায়ী কোনো মূল্য তালিকা রেকর্ড পাওয়া যায়নি')}
+                </p>
               </div>
             ) : (
               <table className="w-full border-collapse text-left">
@@ -269,13 +424,14 @@ export default function PricingPage() {
                     <th className="p-4 pl-6 w-20 text-center">{t('#', 'ক্রমিক নং')}</th>
                     <th className="p-4">{t('Category', 'ক্যাটাগরি')}</th>
                     <th className="p-4">{t('Size', 'সাইজ')}</th>
-                    <th className="p-4">{t('Buying Price (BDT)', 'ক্রয় মূল্য (টাকা)')}</th>
+                    <th className="p-4">{t('Previous Buying Price', 'আগের ক্রয় মূল্য')}</th>
+                    <th className="p-4">{t('Current Buying Price', 'বর্তমান ক্রয় মূল্য')}</th>
                     <th className="p-4">{t('Selling Price (BDT)', 'বিক্রয় মূল্য (টাকা)')}</th>
                     {isAdmin && <th className="p-4 pr-6 text-center w-32">{t('Actions', 'অপশন')}</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {prices.map((p, index) => (
+                  {filteredPrices.map((p, index) => (
                     <tr key={p.id} className="hover:bg-slate-50/50 transition-colors whitespace-nowrap">
                       <td className="p-4 pl-6 text-center text-slate-400 font-mono">{index + 1}</td>
                       <td className="p-4 font-semibold text-slate-900">
@@ -284,8 +440,39 @@ export default function PricingPage() {
                       <td className="p-4 font-mono text-slate-600">
                         {language === 'en' ? p.size_name_en : (p.size_name_bn || p.size_name_en)}
                       </td>
-                      <td className="p-4 font-bold text-slate-800 font-mono">৳{p.buying_price.toFixed(2)}</td>
-                      <td className="p-4 font-bold text-emerald-600 font-mono">৳{p.selling_price.toFixed(2)}</td>
+                      <td className="p-4 font-bold text-slate-800 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <span>
+                            {visiblePrices.has(p.id) 
+                              ? `৳${(p.prev_buying_price ?? 0).toFixed(2)}` 
+                              : '••••••'}
+                          </span>
+                          <button
+                            onClick={() => togglePriceVisibility(p.id)}
+                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                            title={visiblePrices.has(p.id) ? t('Hide Price', 'মূল্য লুকান') : t('Show Price', 'মূল্য দেখান')}
+                          >
+                            {visiblePrices.has(p.id) ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="p-4 font-bold text-slate-800 font-mono">
+                        <div className="flex items-center gap-1.5">
+                          <span>
+                            {visiblePrices.has(p.id) 
+                              ? `৳${(p.buying_price ?? 0).toFixed(2)}` 
+                              : '••••••'}
+                          </span>
+                          <button
+                            onClick={() => togglePriceVisibility(p.id)}
+                            className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                            title={visiblePrices.has(p.id) ? t('Hide Price', 'মূল্য লুকান') : t('Show Price', 'মূল্য দেখান')}
+                          >
+                            {visiblePrices.has(p.id) ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="p-4 font-bold text-emerald-600 font-mono">৳{(p.selling_price ?? 0).toFixed(2)}</td>
                       {isAdmin && (
                         <td className="p-4 pr-6 text-center">
                           <div className="flex items-center justify-center gap-2">
@@ -296,13 +483,23 @@ export default function PricingPage() {
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleOpenDeleteModal(p)}
-                              className="p-1.5 text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
-                              title={t('Delete Price', 'মূল্য মুছুন')}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {!p.id.startsWith('placeholder-') ? (
+                              <button
+                                onClick={() => handleOpenDeleteModal(p)}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
+                                title={t('Delete Price', 'মূল্য মুছুন')}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <button
+                                disabled
+                                className="p-1.5 text-slate-300 bg-slate-50 border border-slate-100 rounded-lg cursor-not-allowed opacity-60"
+                                title={t('No price configured to delete', 'মুছার মতো কোনো মূল্য সেট করা নেই')}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       )}

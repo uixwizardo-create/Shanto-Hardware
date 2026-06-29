@@ -80,6 +80,7 @@ export interface StockTransaction {
     size: ItemSize;
     color_name: string;  // maps to full_color_name
     price: number;       // size-based price
+    category_id: string | null;
   };
   profile?: {
     email: string;
@@ -127,6 +128,7 @@ export interface Pricing {
   category_id: string;
   size_id: string;
   buying_price: number;
+  prev_buying_price: number;
   selling_price: number;
   category_name_en?: string;
   category_name_bn?: string;
