@@ -78,7 +78,11 @@ function mapInventoryItem(item: any): InventoryItem {
     total_stock_in: item.total_stock_in ?? 0,
     total_stock_out: item.total_stock_out ?? 0,
     total_adjustments: item.total_adjustments ?? 0,
-    status: item.status || 'Available'
+    status: (item.current_stock ?? 0) <= 0
+      ? 'Out of Stock'
+      : (item.current_stock ?? 0) < min_stock
+        ? 'Reorder'
+        : 'Available'
   };
 }
 
@@ -965,7 +969,7 @@ function getLocalInventoryItems(): InventoryItem[] {
     let status: 'Out of Stock' | 'Reorder' | 'Available' = 'Available';
     if (current_stock <= 0) {
       status = 'Out of Stock';
-    } else if (current_stock <= item.minimum_stock) {
+    } else if (current_stock < item.minimum_stock) {
       status = 'Reorder';
     }
     
@@ -1448,12 +1452,12 @@ export async function getDashboardSummaryMetrics(): Promise<DashboardSummary> {
     // 2. Fetch inventory items to aggregate total stock and low stock count
     const { data: stockData, error: err2 } = await supabase!
       .from('inventory_current_stock_view')
-      .select('current_stock, status');
+      .select('current_stock, minimum_stock');
     
     if (err2) throw err2;
 
     const totalStock = stockData.reduce((sum, item) => sum + (item.current_stock || 0), 0);
-    const lowStockCount = stockData.filter(item => item.status === 'Reorder' || item.status === 'Out of Stock').length;
+    const lowStockCount = stockData.filter(item => (item.current_stock || 0) < (item.minimum_stock ?? 5)).length;
 
     // 3. Fetch sales transactions to compute sales count and value
     const { data: salesData, error: err3 } = await supabase!
@@ -1508,13 +1512,13 @@ export async function fetchReports(filters?: ReportFilter): Promise<{
   let lowStockCount = 0;
   if (isDemoMode) {
     const items = getLocalInventoryItems();
-    lowStockCount = items.filter(item => item.status === 'Reorder' || item.status === 'Out of Stock').length;
+    lowStockCount = items.filter(item => (item.current_stock ?? 0) < (item.min_stock ?? 5)).length;
   } else {
     const { data, error } = await supabase!
       .from('inventory_current_stock_view')
-      .select('status');
+      .select('current_stock, minimum_stock');
     if (!error && data) {
-      lowStockCount = data.filter(item => item.status === 'Reorder' || item.status === 'Out of Stock').length;
+      lowStockCount = data.filter(item => (item.current_stock || 0) < (item.minimum_stock ?? 5)).length;
     }
   }
 

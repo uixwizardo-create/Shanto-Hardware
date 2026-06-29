@@ -146,7 +146,7 @@ SELECT
             COALESCE(SUM(CASE WHEN t.action_type = 'STOCK_IN' THEN t.quantity ELSE 0 END), 0) - 
             COALESCE(SUM(CASE WHEN t.action_type = 'STOCK_OUT' THEN t.quantity ELSE 0 END), 0) + 
             COALESCE(SUM(CASE WHEN t.action_type = 'ADJUSTMENT' THEN t.quantity ELSE 0 END), 0)
-        ) <= i.minimum_stock THEN 'Reorder'
+        ) < i.minimum_stock THEN 'Reorder'
         ELSE 'Available'
     END AS status
 FROM inventory_items i

@@ -53,8 +53,8 @@ export default function StockAlertPage() {
       // Fetch all items
       const data = await fetchInventory();
       
-      // Filter items at or below safety stock level: current_stock <= minimum_stock
-      let lowStockItems = data.filter(item => item.current_stock <= item.minimum_stock);
+      // Filter items strictly below safety stock level: current_stock < minimum_stock
+      let lowStockItems = data.filter(item => item.current_stock < item.minimum_stock);
 
       // Apply Search Query locally
       if (searchQuery) {
@@ -105,7 +105,7 @@ export default function StockAlertPage() {
 
   // Compute metrics based on currently fetched alert items
   const outOfStockCount = items.filter(item => item.current_stock <= 0).length;
-  const reorderCount = items.filter(item => item.current_stock > 0 && item.current_stock <= item.minimum_stock).length;
+  const reorderCount = items.filter(item => item.current_stock > 0 && item.current_stock < item.minimum_stock).length;
 
   return (
     <LayoutWrapper>

@@ -78,7 +78,7 @@ export default function DashboardPage() {
         setAllItems(itemsList);
         
         // Filter low stock and out of stock items
-        const low = itemsList.filter(item => item.status === 'Reorder' || item.status === 'Out of Stock');
+        const low = itemsList.filter(item => item.current_stock < item.min_stock);
         const oos = itemsList.filter(item => item.current_stock === 0);
         
         setLowStockItems(low);
