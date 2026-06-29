@@ -12,7 +12,8 @@ import {
   TransactionType,
   Settings,
   Category,
-  Size
+  Size,
+  Pricing
 } from './types';
 
 // Load Supabase environment variables
@@ -155,6 +156,7 @@ export function initializeDemoData(force = false) {
     localStorage.removeItem('shanto_profiles');
     localStorage.removeItem('shanto_categories');
     localStorage.removeItem('shanto_sizes');
+    localStorage.removeItem('shanto_prices');
     localStorage.removeItem('shanto_inventory');
     localStorage.removeItem('shanto_transactions');
   }
@@ -181,6 +183,77 @@ export function initializeDemoData(force = false) {
       { id: '33333333-3333-3333-3333-000000000004', name_en: 'Half Pound (200ML)', name_bn: 'হাফ পাউন্ড (২০০ মিলি)', created_at: new Date().toISOString() }
     ];
     setLocalData('shanto_sizes', defaultSizes);
+  }
+
+  // Seed Prices
+  if (!localStorage.getItem('shanto_prices')) {
+    const defaultPrices: Pricing[] = [
+      {
+        id: 'price-1',
+        category_id: '22222222-2222-2222-2222-000000000001',
+        size_id: '33333333-3333-3333-3333-000000000001',
+        buying_price: 1800,
+        selling_price: 2200,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'price-2',
+        category_id: '22222222-2222-2222-2222-000000000002',
+        size_id: '33333333-3333-3333-3333-000000000001',
+        buying_price: 2000,
+        selling_price: 2400,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'price-3',
+        category_id: '22222222-2222-2222-2222-000000000002',
+        size_id: '33333333-3333-3333-3333-000000000002',
+        buying_price: 450,
+        selling_price: 550,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'price-4',
+        category_id: '22222222-2222-2222-2222-000000000002',
+        size_id: '33333333-3333-3333-3333-000000000003',
+        buying_price: 250,
+        selling_price: 320,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'price-5',
+        category_id: '22222222-2222-2222-2222-000000000002',
+        size_id: '33333333-3333-3333-3333-000000000004',
+        buying_price: 120,
+        selling_price: 160,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'price-6',
+        category_id: '22222222-2222-2222-2222-000000000003',
+        size_id: '33333333-3333-3333-3333-000000000001',
+        buying_price: 1500,
+        selling_price: 1900,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'price-7',
+        category_id: '22222222-2222-2222-2222-000000000004',
+        size_id: '33333333-3333-3333-3333-000000000001',
+        buying_price: 1200,
+        selling_price: 1500,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: 'price-8',
+        category_id: '22222222-2222-2222-2222-000000000006',
+        size_id: '33333333-3333-3333-3333-000000000001',
+        buying_price: 1100,
+        selling_price: 1400,
+        created_at: new Date().toISOString()
+      }
+    ];
+    setLocalData('shanto_prices', defaultPrices);
   }
 
   // 1. Seed Profiles
@@ -2370,5 +2443,363 @@ export async function updateStockTransaction(
       throw error;
     }
     return mapStockTransaction(data);
+  }
+}
+
+/**
+ * ----------------------------------------------------
+ * PRICING LIST FUNCTIONS
+ * ----------------------------------------------------
+ */
+
+function getLocalPricesFallback(categories: Category[], sizes: Size[]): Pricing[] {
+  initializeDemoData();
+  const prices = getLocalData<Pricing[]>('shanto_prices', []);
+  
+  return prices.map(p => {
+    const cat = categories.find(c => c.id === p.category_id);
+    const sz = sizes.find(s => s.id === p.size_id);
+    return {
+      ...p,
+      category_name_en: cat?.name_en,
+      category_name_bn: cat?.name_bn,
+      size_name_en: sz?.name_en,
+      size_name_bn: sz?.name_bn
+    };
+  });
+}
+
+function addLocalPriceFallback(
+  categoryId: string, 
+  sizeId: string, 
+  buyingPrice: number, 
+  sellingPrice: number,
+  categories: Category[],
+  sizes: Size[]
+): Pricing {
+  initializeDemoData();
+  const prices = getLocalData<Pricing[]>('shanto_prices', []);
+  const exists = prices.some(p => p.category_id === categoryId && p.size_id === sizeId);
+  if (exists) {
+    throw new Error('A pricing record for this category and size already exists.');
+  }
+  
+  const newPrice: Pricing = {
+    id: 'price-' + Math.random().toString(36).substr(2, 9),
+    category_id: categoryId,
+    size_id: sizeId,
+    buying_price: buyingPrice,
+    selling_price: sellingPrice,
+    created_at: new Date().toISOString()
+  };
+  
+  prices.push(newPrice);
+  setLocalData('shanto_prices', prices);
+  
+  const cat = categories.find(c => c.id === categoryId);
+  const sz = sizes.find(s => s.id === sizeId);
+  
+  return {
+    ...newPrice,
+    category_name_en: cat?.name_en,
+    category_name_bn: cat?.name_bn,
+    size_name_en: sz?.name_en,
+    size_name_bn: sz?.name_bn
+  };
+}
+
+function updateLocalPriceFallback(
+  id: string, 
+  buyingPrice: number, 
+  sellingPrice: number,
+  categories: Category[],
+  sizes: Size[]
+): Pricing {
+  initializeDemoData();
+  const prices = getLocalData<Pricing[]>('shanto_prices', []);
+  const idx = prices.findIndex(p => p.id === id);
+  if (idx === -1) {
+    throw new Error('Pricing record not found.');
+  }
+  
+  prices[idx] = {
+    ...prices[idx],
+    buying_price: buyingPrice,
+    selling_price: sellingPrice
+  };
+  
+  setLocalData('shanto_prices', prices);
+  
+  const cat = categories.find(c => c.id === prices[idx].category_id);
+  const sz = sizes.find(s => s.id === prices[idx].size_id);
+  
+  return {
+    ...prices[idx],
+    category_name_en: cat?.name_en,
+    category_name_bn: cat?.name_bn,
+    size_name_en: sz?.name_en,
+    size_name_bn: sz?.name_bn
+  };
+}
+
+function deleteLocalPriceFallback(id: string): void {
+  initializeDemoData();
+  const prices = getLocalData<Pricing[]>('shanto_prices', []);
+  const filtered = prices.filter(p => p.id !== id);
+  setLocalData('shanto_prices', filtered);
+}
+
+function isMissingTableError(error: any): boolean {
+  if (!error) return false;
+  const msg = error.message || '';
+  const code = error.code || '';
+  return code === 'PGRST116' || msg.includes('pricing') || msg.includes('relation');
+}
+
+export async function fetchPrices(): Promise<Pricing[]> {
+  if (isDemoMode) {
+    const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+    return getLocalPricesFallback(categories, sizes);
+  } else {
+    try {
+      const { data, error } = await supabase!
+        .from('pricing')
+        .select(`
+          id,
+          category_id,
+          size_id,
+          buying_price,
+          selling_price,
+          created_at,
+          categories (
+            name_en,
+            name_bn
+          ),
+          sizes (
+            name_en,
+            name_bn
+          )
+        `)
+        .order('created_at', { ascending: false });
+        
+      if (error) {
+        if (isMissingTableError(error)) {
+          console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+          const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+          return getLocalPricesFallback(categories, sizes);
+        }
+        console.error('Error fetching prices from Supabase:', error);
+        throw error;
+      }
+      
+      return (data || []).map((p: any) => ({
+        id: p.id,
+        category_id: p.category_id,
+        size_id: p.size_id,
+        buying_price: Number(p.buying_price),
+        selling_price: Number(p.selling_price),
+        category_name_en: p.categories?.name_en,
+        category_name_bn: p.categories?.name_bn,
+        size_name_en: p.sizes?.name_en,
+        size_name_bn: p.sizes?.name_bn,
+        created_at: p.created_at
+      }));
+    } catch (err: any) {
+      if (isMissingTableError(err)) {
+        console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+        const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+        return getLocalPricesFallback(categories, sizes);
+      }
+      throw err;
+    }
+  }
+}
+
+export async function addPrice(
+  categoryId: string, 
+  sizeId: string, 
+  buyingPrice: number, 
+  sellingPrice: number
+): Promise<Pricing> {
+  if (isDemoMode) {
+    const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+    return addLocalPriceFallback(categoryId, sizeId, buyingPrice, sellingPrice, categories, sizes);
+  } else {
+    try {
+      // Unique check
+      const { data: existing, error: existErr } = await supabase!
+        .from('pricing')
+        .select('id')
+        .eq('category_id', categoryId)
+        .eq('size_id', sizeId)
+        .maybeSingle();
+        
+      if (existErr) {
+        if (isMissingTableError(existErr)) {
+          console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+          const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+          return addLocalPriceFallback(categoryId, sizeId, buyingPrice, sellingPrice, categories, sizes);
+        }
+        throw existErr;
+      }
+        
+      if (existing) {
+        throw new Error('A pricing record for this category and size already exists.');
+      }
+
+      const { data, error } = await supabase!
+        .from('pricing')
+        .insert({
+          category_id: categoryId,
+          size_id: sizeId,
+          buying_price: buyingPrice,
+          selling_price: sellingPrice
+        })
+        .select(`
+          id,
+          category_id,
+          size_id,
+          buying_price,
+          selling_price,
+          created_at,
+          categories (
+            name_en,
+            name_bn
+          ),
+          sizes (
+            name_en,
+            name_bn
+          )
+        `)
+        .single();
+        
+      if (error) {
+        if (isMissingTableError(error)) {
+          console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+          const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+          return addLocalPriceFallback(categoryId, sizeId, buyingPrice, sellingPrice, categories, sizes);
+        }
+        console.error('Error adding price in Supabase:', error);
+        throw error;
+      }
+      
+      const p = data as any;
+      return {
+        id: p.id,
+        category_id: p.category_id,
+        size_id: p.size_id,
+        buying_price: Number(p.buying_price),
+        selling_price: Number(p.selling_price),
+        category_name_en: p.categories?.name_en,
+        category_name_bn: p.categories?.name_bn,
+        size_name_en: p.sizes?.name_en,
+        size_name_bn: p.sizes?.name_bn,
+        created_at: p.created_at
+      };
+    } catch (err: any) {
+      if (isMissingTableError(err)) {
+        console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+        const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+        return addLocalPriceFallback(categoryId, sizeId, buyingPrice, sellingPrice, categories, sizes);
+      }
+      throw err;
+    }
+  }
+}
+
+export async function updatePrice(
+  id: string, 
+  buyingPrice: number, 
+  sellingPrice: number
+): Promise<Pricing> {
+  if (isDemoMode) {
+    const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+    return updateLocalPriceFallback(id, buyingPrice, sellingPrice, categories, sizes);
+  } else {
+    try {
+      const { data, error } = await supabase!
+        .from('pricing')
+        .update({
+          buying_price: buyingPrice,
+          selling_price: sellingPrice
+        })
+        .eq('id', id)
+        .select(`
+          id,
+          category_id,
+          size_id,
+          buying_price,
+          selling_price,
+          created_at,
+          categories (
+            name_en,
+            name_bn
+          ),
+          sizes (
+            name_en,
+            name_bn
+          )
+        `)
+        .single();
+        
+      if (error) {
+        if (isMissingTableError(error)) {
+          console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+          const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+          return updateLocalPriceFallback(id, buyingPrice, sellingPrice, categories, sizes);
+        }
+        console.error('Error updating price in Supabase:', error);
+        throw error;
+      }
+      
+      const p = data as any;
+      return {
+        id: p.id,
+        category_id: p.category_id,
+        size_id: p.size_id,
+        buying_price: Number(p.buying_price),
+        selling_price: Number(p.selling_price),
+        category_name_en: p.categories?.name_en,
+        category_name_bn: p.categories?.name_bn,
+        size_name_en: p.sizes?.name_en,
+        size_name_bn: p.sizes?.name_bn,
+        created_at: p.created_at
+      };
+    } catch (err: any) {
+      if (isMissingTableError(err)) {
+        console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+        const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+        return updateLocalPriceFallback(id, buyingPrice, sellingPrice, categories, sizes);
+      }
+      throw err;
+    }
+  }
+}
+
+export async function deletePrice(id: string): Promise<void> {
+  if (isDemoMode) {
+    deleteLocalPriceFallback(id);
+  } else {
+    try {
+      const { error } = await supabase!
+        .from('pricing')
+        .delete()
+        .eq('id', id);
+        
+      if (error) {
+        if (isMissingTableError(error)) {
+          console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+          return deleteLocalPriceFallback(id);
+        }
+        console.error('Error deleting price from Supabase:', error);
+        throw error;
+      }
+    } catch (err: any) {
+      if (isMissingTableError(err)) {
+        console.warn('pricing table not found in Supabase. Falling back to local storage Demo Mode.');
+        return deleteLocalPriceFallback(id);
+      }
+      throw err;
+    }
   }
 }

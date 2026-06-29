@@ -22,7 +22,8 @@ import {
   Tags,
   History,
   Ruler,
-  Calculator
+  Calculator,
+  Coins
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -58,6 +59,12 @@ export default function Sidebar() {
       icon: Ruler,
       labelEn: 'Sizes',
       labelBn: 'সাইজ',
+    },
+    {
+      path: '/pricing',
+      icon: Coins,
+      labelEn: 'Pricing List',
+      labelBn: 'মূল্য তালিকা',
     },
     {
       path: '/paint-calculator',

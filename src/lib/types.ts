@@ -121,3 +121,16 @@ export interface Settings {
   default_min_stock: number;
   updated_at: string;
 }
+
+export interface Pricing {
+  id: string;
+  category_id: string;
+  size_id: string;
+  buying_price: number;
+  selling_price: number;
+  category_name_en?: string;
+  category_name_bn?: string;
+  size_name_en?: string;
+  size_name_bn?: string;
+  created_at: string;
+}
