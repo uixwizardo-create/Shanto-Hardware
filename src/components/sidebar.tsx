@@ -21,7 +21,8 @@ import {
   Settings as SettingsIcon,
   Tags,
   History,
-  Ruler
+  Ruler,
+  Calculator
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -57,6 +58,12 @@ export default function Sidebar() {
       icon: Ruler,
       labelEn: 'Sizes',
       labelBn: 'সাইজ',
+    },
+    {
+      path: '/paint-calculator',
+      icon: Calculator,
+      labelEn: 'Paint Calculator',
+      labelBn: 'পেইন্ট ক্যালকুলেটর',
     },
     {
       path: '/stock-in',
