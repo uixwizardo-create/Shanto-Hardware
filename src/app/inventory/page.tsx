@@ -399,6 +399,7 @@ export default function InventoryPage() {
                     <th className="p-4 pl-6 w-16 text-center">{t('#', 'ক্রমিক নং')}</th>
                     <th className="p-4">{t('Color / রং', 'রঙের নাম')}</th>
                     <th className="p-4">{t('Category', 'ক্যাটাগরি')}</th>
+                    <th className="p-4 text-right">{t('Selling Price', 'বিক্রয় মূল্য')}</th>
                     <th className="p-4 text-right">{t('Initial Stock', 'শুরুর স্টক')}</th>
                     <th className="p-4 text-right">{t('Current Stock', 'বর্তমান স্টক')}</th>
                     <th className="p-4 text-right">{t('Min Stock', 'নূন্যতম স্টক')}</th>
@@ -441,6 +442,7 @@ export default function InventoryPage() {
                         <td className="p-4 text-slate-500">
                           {language === 'en' ? item.category_name_en || '-' : item.category_name_bn || '-'}
                         </td>
+                        <td className="p-4 text-right font-mono font-semibold text-slate-800">৳{(item.price ?? 0).toFixed(2)}</td>
                         <td className="p-4 text-right font-mono text-slate-500">{item.initial_stock}</td>
                         <td className="p-4 text-right font-semibold font-mono text-slate-800">{item.current_stock}</td>
                         <td className="p-4 text-right font-mono text-slate-500">{item.minimum_stock}</td>
