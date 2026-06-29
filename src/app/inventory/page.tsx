@@ -442,7 +442,13 @@ export default function InventoryPage() {
                         <td className="p-4 text-slate-500">
                           {language === 'en' ? item.category_name_en || '-' : item.category_name_bn || '-'}
                         </td>
-                        <td className="p-4 text-right font-mono font-semibold text-slate-800">৳{(item.price ?? 0).toFixed(2)}</td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold font-mono bg-emerald-50/60 border border-emerald-100 text-emerald-750">
+                              ৳{(item.price ?? 0).toFixed(2)}
+                            </span>
+                          </div>
+                        </td>
                         <td className="p-4 text-right font-mono text-slate-500">{item.initial_stock}</td>
                         <td className="p-4 text-right font-semibold font-mono text-slate-800">{item.current_stock}</td>
                         <td className="p-4 text-right font-mono text-slate-500">{item.minimum_stock}</td>
