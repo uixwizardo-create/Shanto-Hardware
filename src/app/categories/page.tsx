@@ -17,7 +17,8 @@ import {
   CheckCircle,
   Loader2,
   X,
-  Info
+  Info,
+  GripVertical
 } from 'lucide-react';
 
 const categorySchema = z.object({
@@ -37,6 +38,9 @@ export default function CategoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   
+  // Drag-and-drop state
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -52,6 +56,21 @@ export default function CategoryPage() {
     setError(null);
     try {
       const data = await fetchCategories();
+      const savedOrder = localStorage.getItem('shanto_categories_order');
+      if (savedOrder) {
+        try {
+          const orderIds: string[] = JSON.parse(savedOrder);
+          data.sort((a, b) => {
+            const indexA = orderIds.indexOf(a.id);
+            const indexB = orderIds.indexOf(b.id);
+            const posA = indexA === -1 ? Infinity : indexA;
+            const posB = indexB === -1 ? Infinity : indexB;
+            return posA - posB;
+          });
+        } catch (e) {
+          console.error('Failed to parse categories order:', e);
+        }
+      }
       setCategories(data);
     } catch (err: any) {
       console.error(err);
@@ -64,6 +83,36 @@ export default function CategoryPage() {
   useEffect(() => {
     loadCategories();
   }, []);
+
+  // HTML5 Drag Handlers
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (!isAdmin) return;
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetIndex: number) => {
+    if (!isAdmin) return;
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
+
+    const reorderedCategories = [...categories];
+    const draggedItem = reorderedCategories[draggedIndex];
+    
+    reorderedCategories.splice(draggedIndex, 1);
+    reorderedCategories.splice(targetIndex, 0, draggedItem);
+    
+    setDraggedIndex(targetIndex);
+    setCategories(reorderedCategories);
+  };
+
+  const handleDragEnd = () => {
+    if (!isAdmin) return;
+    setDraggedIndex(null);
+    const orderIds = categories.map(cat => cat.id);
+    localStorage.setItem('shanto_categories_order', JSON.stringify(orderIds));
+  };
 
   // React Hook Form for Adding Categories
   const {
@@ -236,40 +285,60 @@ export default function CategoryPage() {
               <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold uppercase tracking-wider text-slate-500 whitespace-nowrap">
-                    <th className="p-4 pl-6 w-20 text-center">{t('#', 'ক্রমিক নং')}</th>
+                    {isAdmin && <th className="w-10 p-4 pl-6"></th>}
+                    <th className={`p-4 ${isAdmin ? '' : 'pl-6'} w-20 text-center`}>{t('#', 'ক্রমিক নং')}</th>
                     <th className="p-4">{t('English Name', 'ইংরেজি নাম')}</th>
                     <th className="p-4">{t('Bangla Name', 'বাংলা নাম')}</th>
                     {isAdmin && <th className="p-4 pr-6 text-center w-32">{t('Actions', 'অপশন')}</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {categories.map((cat, index) => (
-                    <tr key={cat.id} className="hover:bg-slate-50/50 transition-colors whitespace-nowrap">
-                      <td className="p-4 pl-6 text-center text-slate-400 font-mono">{index + 1}</td>
-                      <td className="p-4 font-semibold text-slate-900">{cat.name_en}</td>
-                      <td className="p-4 text-slate-500">{cat.name_bn === cat.name_en ? '-' : cat.name_bn}</td>
-                      {isAdmin && (
-                        <td className="p-4 pr-6 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => handleOpenEditModal(cat)}
-                              className="p-1.5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-                              title={t('Edit Category', 'সম্পাদনা করুন')}
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleOpenDeleteModal(cat)}
-                              className="p-1.5 text-rose-500 hover:text-rose-705 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
-                              title={t('Delete Category', 'ক্যাটাগরি মুছুন')}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
+                  {categories.map((cat, index) => {
+                    const isDragging = draggedIndex === index;
+                    return (
+                      <tr
+                        key={cat.id}
+                        draggable={isAdmin}
+                        onDragStart={(e) => handleDragStart(e, index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragEnd={handleDragEnd}
+                        className={`hover:bg-slate-50/50 transition-all whitespace-nowrap ${
+                          isDragging ? 'opacity-50 border-y border-dashed border-emerald-500 bg-emerald-50/20' : ''
+                        }`}
+                      >
+                        {isAdmin && (
+                          <td className="p-4 pl-6 text-center w-10">
+                            <div className="flex items-center justify-center text-slate-400 cursor-grab active:cursor-grabbing">
+                              <GripVertical className="w-4 h-4" />
+                            </div>
+                          </td>
+                        )}
+                        <td className={`p-4 ${isAdmin ? '' : 'pl-6'} text-center text-slate-400 font-mono`}>{index + 1}</td>
+                        <td className="p-4 font-semibold text-slate-900">{cat.name_en}</td>
+                        <td className="p-4 text-slate-500">{cat.name_bn === cat.name_en ? '-' : cat.name_bn}</td>
+                        {isAdmin && (
+                          <td className="p-4 pr-6 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleOpenEditModal(cat)}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                                title={t('Edit Category', 'সম্পাদনা করুন')}
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleOpenDeleteModal(cat)}
+                                className="p-1.5 text-rose-500 hover:text-rose-705 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
+                                title={t('Delete Category', 'ক্যাটাগরি মুছুন')}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
