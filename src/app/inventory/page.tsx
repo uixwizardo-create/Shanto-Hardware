@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import LayoutWrapper from '@/components/layout-wrapper';
+import StockInModal from '@/components/stock-in-modal';
+import StockOutModal from '@/components/stock-out-modal';
 import { useApp } from '@/context/AppContext';
 import { 
   fetchInventory, 
@@ -27,7 +29,9 @@ import {
   CheckCircle,
   Paintbrush,
   Loader2,
-  ChevronDown
+  ChevronDown,
+  ArrowUpRight,
+  ArrowDownLeft
 } from 'lucide-react';
 
 interface ItemFormValues {
@@ -86,6 +90,12 @@ export default function InventoryPage() {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Quick Transaction Modal States
+  const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
+  const [selectedItemIdForStockIn, setSelectedItemIdForStockIn] = useState<string | undefined>(undefined);
+  const [isStockOutModalOpen, setIsStockOutModalOpen] = useState(false);
+  const [selectedItemIdForStockOut, setSelectedItemIdForStockOut] = useState<string | undefined>(undefined);
 
   // Load Inventory Data
   const loadInventory = async () => {
@@ -404,7 +414,7 @@ export default function InventoryPage() {
                     <th className="p-4 text-right">{t('Current Stock', 'বর্তমান স্টক')}</th>
                     <th className="p-4 text-right">{t('Min Stock', 'নূন্যতম স্টক')}</th>
                     <th className="p-4 text-center">{t('Status', 'অবস্থা')}</th>
-                    {isAdmin && <th className="p-4 pr-6 text-center w-24">{t('Actions', 'অপশন')}</th>}
+                    <th className="p-4 pr-6 text-center w-40">{t('Actions', 'অ্যাকশন')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
@@ -457,26 +467,48 @@ export default function InventoryPage() {
                             {statusLabel}
                           </span>
                         </td>
-                        {isAdmin && (
-                          <td className="p-4 pr-6 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                onClick={() => handleOpenEditModal(item)}
-                                className="p-1.5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-                                title={t('Edit Item', 'সম্পাদনা করুন')}
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleOpenDeleteModal(item)}
-                                className="p-1.5 text-rose-400 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
-                                title={t('Delete Item', 'মুছে ফেলুন')}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        )}
+                        <td className="p-4 pr-6 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedItemIdForStockIn(item.id);
+                                setIsStockInModalOpen(true);
+                              }}
+                              className="p-1.5 text-emerald-650 hover:text-emerald-750 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 rounded-lg transition-colors cursor-pointer"
+                              title={t('Stock In', 'স্টক ইন')}
+                            >
+                              <ArrowUpRight className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedItemIdForStockOut(item.id);
+                                setIsStockOutModalOpen(true);
+                              }}
+                              className="p-1.5 text-blue-600 hover:text-blue-750 bg-blue-50 hover:bg-blue-105 border border-blue-100 rounded-lg transition-colors cursor-pointer"
+                              title={t('Stock Out', 'স্টক আউট')}
+                            >
+                              <ArrowDownLeft className="w-4 h-4" />
+                            </button>
+                            {isAdmin && (
+                              <>
+                                <button
+                                  onClick={() => handleOpenEditModal(item)}
+                                  className="p-1.5 text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                                  title={t('Edit Item', 'সম্পাদনা করুন')}
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleOpenDeleteModal(item)}
+                                  className="p-1.5 text-rose-400 hover:text-rose-750 bg-rose-50 hover:bg-rose-100 border border-rose-105 rounded-lg transition-colors cursor-pointer"
+                                  title={t('Delete Item', 'মুছে ফেলুন')}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -871,6 +903,26 @@ export default function InventoryPage() {
           </div>
         )}
       </div>
+
+      <StockInModal
+        isOpen={isStockInModalOpen}
+        onClose={() => {
+          setIsStockInModalOpen(false);
+          setSelectedItemIdForStockIn(undefined);
+        }}
+        preselectedItemId={selectedItemIdForStockIn}
+        onSuccess={loadInventory}
+      />
+
+      <StockOutModal
+        isOpen={isStockOutModalOpen}
+        onClose={() => {
+          setIsStockOutModalOpen(false);
+          setSelectedItemIdForStockOut(undefined);
+        }}
+        preselectedItemId={selectedItemIdForStockOut}
+        onSuccess={loadInventory}
+      />
     </LayoutWrapper>
   );
 }

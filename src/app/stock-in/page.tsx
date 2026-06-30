@@ -2,12 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import LayoutWrapper from '@/components/layout-wrapper';
+import StockInModal from '@/components/stock-in-modal';
 import { useApp } from '@/context/AppContext';
-import { fetchInventory, addStock, fetchSizes, fetchTransactionLogs, deleteStockTransaction, updateStockTransaction } from '@/lib/db';
+import { fetchInventory, fetchSizes, fetchTransactionLogs, deleteStockTransaction, updateStockTransaction } from '@/lib/db';
 import { InventoryItem, Size, StockTransaction } from '@/lib/types';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import { 
   PlusCircle, 
   Loader2, 
@@ -25,16 +23,6 @@ import {
   Trash2
 } from 'lucide-react';
 
-const stockInSchema = z.object({
-  itemId: z.string().min(1, 'Please select an item / একটি পেইন্ট পণ্য নির্বাচন করুন'),
-  quantity: z.number()
-    .int('Quantity must be a whole number / পরিমাণ অবশ্যই পূর্ণসংখ্যা হতে হবে')
-    .positive('Quantity must be greater than zero / পরিমাণ অবশ্যই ০ এর বেশি হতে হবে'),
-  notes: z.string().max(250, 'Notes cannot exceed 250 characters / নোট ২৫০ অক্ষরের বেশি হতে পারবে না').optional(),
-});
-
-type StockInFormValues = z.infer<typeof stockInSchema>;
-
 export default function StockInPage() {
   const { t, user, language } = useApp();
   const [sizes, setSizes] = useState<Size[]>([]);
@@ -48,19 +36,9 @@ export default function StockInPage() {
   const [transactions, setTransactions] = useState<StockTransaction[]>([]);
   const [loadingTransactions, setLoadingTransactions] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [preselectedItemId, setPreselectedItemId] = useState<string | undefined>(undefined);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
-
-  // Custom searchable dropdown states
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [dropdownSearch, setDropdownSearch] = useState('');
-
-  // Filter items based on dropdown search input
-  const filteredItems = items.filter(item => 
-    item.serial_no.toString().includes(dropdownSearch) ||
-    item.full_color_name.toLowerCase().includes(dropdownSearch.toLowerCase()) ||
-    item.size.toLowerCase().includes(dropdownSearch.toLowerCase())
-  );
 
   const isAdmin = user?.role === 'admin';
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -132,36 +110,17 @@ export default function StockInPage() {
     return sizeName;
   };
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    watch,
-    setValue,
-    formState: { errors }
-  } = useForm<StockInFormValues>({
-    resolver: zodResolver(stockInSchema),
-    defaultValues: {
-      itemId: '',
-      quantity: 1,
-      notes: ''
-    }
-  });
-
-  const selectedItemId = watch('itemId');
-  const selectedItemDetails = items.find(i => i.id === selectedItemId);
-
   // Pre-fill item selection from search parameters
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const searchParams = new URLSearchParams(window.location.search);
       const queryItemId = searchParams.get('itemId');
-      if (queryItemId && items.length > 0) {
-        setValue('itemId', queryItemId);
-        setIsModalOpen(true); // Open modal automatically if query param is set
+      if (queryItemId) {
+        setPreselectedItemId(queryItemId);
+        setIsModalOpen(true);
       }
     }
-  }, [items, setValue]);
+  }, []);
 
   const loadTransactions = async () => {
     setLoadingTransactions(true);
@@ -206,40 +165,12 @@ export default function StockInPage() {
     loadSizesData();
   }, []);
 
-  const onSubmit = async (data: StockInFormValues) => {
-    if (!user) return;
-    setIsSubmitting(true);
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    try {
-      await addStock(data.itemId, data.quantity, user.id, data.notes);
-      
-      const itemText = selectedItemDetails 
-        ? `${selectedItemDetails.full_color_name} (${selectedItemDetails.size})`
-        : '';
-      
-      setSuccessMessage(
-        t(
-          `Successfully added ${data.quantity} units of "${itemText}".`,
-          `সফলভাবে "${itemText}" এর ${data.quantity} টি ইউনিট যোগ করা হয়েছে।`
-        )
-      );
-      reset({ itemId: '', quantity: 1, notes: '' });
-      setIsModalOpen(false);
-      
-      // Reload inventory list and transaction logs
-      await loadItems();
-      await loadTransactions();
-      setCurrentPage(1);
-      
-      // Clear alert after 5s
-      setTimeout(() => setSuccessMessage(null), 5000);
-    } catch (err: any) {
-      console.error(err);
-      setErrorMessage(err.message || 'Failed to complete transaction.');
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handleSuccess = async () => {
+    setSuccessMessage(t('Stock added successfully.', 'স্টক সফলভাবে যোগ করা হয়েছে।'));
+    await loadItems();
+    await loadTransactions();
+    setCurrentPage(1);
+    setTimeout(() => setSuccessMessage(null), 5000);
   };
 
   // Pagination Calculations
@@ -265,7 +196,7 @@ export default function StockInPage() {
           </div>
           <button
             onClick={() => {
-              reset({ itemId: '', quantity: 1, notes: '' });
+              setPreselectedItemId(undefined);
               setIsModalOpen(true);
             }}
             className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-all shadow-md cursor-pointer self-start md:self-auto hover:shadow-lg active:scale-95"
@@ -281,7 +212,7 @@ export default function StockInPage() {
             <CheckCircle className="w-5 h-5 shrink-0 text-emerald-500" />
             <div>
               <p className="font-semibold">{t('Transaction Completed', 'লেনদেন সম্পন্ন হয়েছে')}</p>
-              <p className="text-xs text-emerald-600 mt-0.5">{successMessage}</p>
+              <p className="text-xs text-emerald-650 mt-0.5">{successMessage}</p>
             </div>
           </div>
         )}
@@ -455,206 +386,6 @@ export default function StockInPage() {
           )}
         </div>
 
-        {/* Modal: Stock In Form */}
-        {isModalOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white border border-slate-250 w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-fade-in">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50">
-                <div className="flex items-center gap-2">
-                  <PlusCircle className="w-5 h-5 text-emerald-650" />
-                  <h3 className="font-bold text-slate-800">{t('Stock Entry Form', 'স্টক ইন এন্ট্রি ফর্ম')}</h3>
-                </div>
-                <button
-                  onClick={() => setIsModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 p-1 transition-all cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-5">
-                {/* Paint Item Selection */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
-                    {t('Select Paint Item', 'পেইন্ট পণ্য নির্বাচন করুন')}
-                  </label>
-                  {loadingItems ? (
-                    <div className="w-full h-10 bg-slate-50 border border-slate-200 rounded-xl flex items-center px-4">
-                      <Loader2 className="w-4 h-4 text-slate-400 animate-spin mr-2" />
-                      <span className="text-slate-400 text-xs">{t('Loading available items...', 'পেইন্ট তালিকা লোড হচ্ছে...')}</span>
-                    </div>
-                  ) : (
-                    <div className="relative">
-                      {/* Dropdown Toggle Button */}
-                      <button
-                        type="button"
-                        onClick={() => setDropdownOpen(!dropdownOpen)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-left focus:outline-none focus:border-emerald-500 transition-all flex items-center justify-between cursor-pointer"
-                      >
-                        <span className={selectedItemDetails ? "text-slate-800 font-medium" : "text-slate-400"}>
-                          {selectedItemDetails 
-                            ? `#${selectedItemDetails.serial_no} ${selectedItemDetails.full_color_name} (${formatSize(selectedItemDetails.size)}) - ${t('Current Stock', 'বর্তমান স্টক')}: ${selectedItemDetails.current_stock}`
-                            : `-- ${t('Choose Paint Item', 'পেইন্ট পণ্য নির্বাচন করুন')} --`}
-                        </span>
-                        <ChevronDown className="w-4 h-4 text-slate-400 shrink-0 ml-2" />
-                      </button>
-
-                      {/* Dropdown Menu Overlay & List */}
-                      {dropdownOpen && (
-                        <>
-                          <div 
-                            className="fixed inset-0 z-40 bg-transparent" 
-                            onClick={() => {
-                              setDropdownOpen(false);
-                              setDropdownSearch('');
-                            }}
-                          />
-                          <div className="absolute z-50 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden animate-fade-in max-h-64 flex flex-col">
-                            {/* Search Input Box */}
-                            <div className="p-2 border-b border-slate-100 bg-slate-50">
-                              <input
-                                type="text"
-                                value={dropdownSearch}
-                                onChange={(e) => setDropdownSearch(e.target.value)}
-                                placeholder={t('Type to search color... (e.g. Red)', 'খুঁজতে টাইপ করুন... (যেমন: লাল)')}
-                                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-500"
-                                autoFocus
-                              />
-                            </div>
-
-                            {/* Dropdown Items List */}
-                            <div className="overflow-y-auto flex-1 divide-y divide-slate-50 max-h-48">
-                              {filteredItems.length === 0 ? (
-                                <div className="p-3 text-xs text-slate-400 text-center">
-                                  {t('No matching items found', 'কোন ম্যাচিং পণ্য পাওয়া যায়নি')}
-                                </div>
-                              ) : (
-                                filteredItems.map((item) => {
-                                  const isSelected = item.id === selectedItemId;
-                                  return (
-                                    <button
-                                      key={item.id}
-                                      type="button"
-                                      onClick={() => {
-                                        setValue('itemId', item.id, { shouldValidate: true });
-                                        setDropdownOpen(false);
-                                        setDropdownSearch('');
-                                      }}
-                                      className={`w-full text-left px-4 py-2.5 text-xs transition-colors flex items-center justify-between cursor-pointer ${
-                                        isSelected 
-                                          ? 'bg-emerald-50 text-emerald-800 font-semibold' 
-                                          : 'hover:bg-slate-50 text-slate-700'
-                                      }`}
-                                    >
-                                      <span>
-                                        #{item.serial_no} {item.full_color_name} ({formatSize(item.size)})
-                                      </span>
-                                      <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${
-                                        item.current_stock > item.minimum_stock 
-                                          ? 'bg-emerald-100 text-emerald-800' 
-                                          : item.current_stock <= 0 
-                                            ? 'bg-red-100 text-red-800' 
-                                            : 'bg-yellow-100 text-yellow-800'
-                                      }`}>
-                                        {t('Stock', 'মজুদ')}: {item.current_stock}
-                                      </span>
-                                    </button>
-                                  );
-                                })
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {errors.itemId && (
-                    <span className="text-red-500 text-xs mt-1 block">{errors.itemId.message}</span>
-                  )}
-                </div>
-
-                {/* Selected Item Stock Context Box */}
-                {selectedItemDetails && (
-                  <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl flex items-start gap-2.5 text-xs text-slate-500 animate-fade-in">
-                    <Info className="w-4.5 h-4.5 text-slate-400 shrink-0 mt-0.5" />
-                    <div className="space-y-1">
-                      <p className="font-semibold text-slate-700">
-                        {t('Current Specifications', 'বর্তমান পণ্যের স্পেসিফিকেশন')}
-                      </p>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 font-medium mt-1">
-                        <div>{t('Color', 'রং')}: <span className="text-slate-800">{selectedItemDetails.full_color_name}</span></div>
-                        <div>{t('Size', 'সাইজ')}: <span className="text-slate-800">{formatSize(selectedItemDetails.size)}</span></div>
-                        <div>{t('Unit Price', 'ইউনিট মূল্য')}: <span className="text-slate-800">৳{selectedItemDetails.price?.toFixed(2) || '0.00'}</span></div>
-                        <div>{t('Min Margin', 'নূন্যতম স্টক সীমা')}: <span className="text-slate-800">{selectedItemDetails.minimum_stock}</span></div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Quantity Input */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
-                    {t('Quantity to Add', 'যোগ করার পরিমাণ')}
-                  </label>
-                  <input
-                    type="number"
-                    {...register('quantity', { valueAsNumber: true })}
-                    placeholder="e.g. 20"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all font-mono"
-                  />
-                  {errors.quantity && (
-                    <span className="text-red-500 text-xs mt-1 block">{errors.quantity.message}</span>
-                  )}
-                </div>
-
-                {/* Vendor Notes Field */}
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
-                    {t('Vendor & Purchase Notes', 'ভেন্ডর ও ক্রয়ের বিবরণ')}
-                  </label>
-                  <textarea
-                    rows={3}
-                    {...register('notes')}
-                    placeholder={t('e.g. Vendor: Berger Paints BD, Invoice #INV-2938, Supplier Batch: B3', 'যেমন: ভেন্ডর - বার্জার পেইন্টস, ইনভয়েস #১২৩৪, ব্যাচ কোড ইত্যাদি')}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                  />
-                  {errors.notes && (
-                    <span className="text-red-500 text-xs mt-1 block">{errors.notes.message}</span>
-                  )}
-                </div>
-
-                {/* Action Buttons */}
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-xl transition-all cursor-pointer"
-                  >
-                    {t('Cancel', 'বাতিল')}
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-55"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        {t('Processing...', 'প্রক্রিয়া হচ্ছে...')}
-                      </>
-                    ) : (
-                      <>
-                        <FileText className="w-4 h-4" />
-                        {t('Submit Stock In', 'স্টক ইন নিশ্চিত করুন')}
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
         {/* Modal: Edit Transaction */}
         {isEditModalOpen && selectedTransaction && (
           <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -666,14 +397,13 @@ export default function StockInPage() {
                 </div>
                 <button
                   onClick={() => setIsEditModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 p-1 transition-all cursor-pointer"
+                  className="text-slate-400 hover:text-slate-650 rounded-lg hover:bg-slate-100 p-1 transition-all cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <form onSubmit={onEditSubmit} className="p-6 space-y-5">
-                {/* Paint Item info (read-only) */}
                 <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-500">
                   <p className="font-semibold text-slate-700 mb-1">
                     {t('Paint Item Details', 'পেইন্ট পণ্যের বিবরণ')}
@@ -683,7 +413,6 @@ export default function StockInPage() {
                   </p>
                 </div>
 
-                {/* Quantity Input */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
                     {t('Quantity', 'পরিমাণ')}
@@ -699,7 +428,6 @@ export default function StockInPage() {
                   />
                 </div>
 
-                {/* Notes Field */}
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
                     {t('Notes', 'বিবরণ')}
@@ -713,7 +441,6 @@ export default function StockInPage() {
                   />
                 </div>
 
-                {/* Action Buttons */}
                 <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
                   <button
                     type="button"
@@ -756,7 +483,7 @@ export default function StockInPage() {
                 </div>
                 <button
                   onClick={() => setIsDeleteModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 p-1 transition-all cursor-pointer"
+                  className="text-slate-400 hover:text-slate-650 rounded-lg hover:bg-slate-100 p-1 transition-all cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -816,6 +543,16 @@ export default function StockInPage() {
           </div>
         )}
       </div>
+
+      <StockInModal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setPreselectedItemId(undefined);
+        }}
+        preselectedItemId={preselectedItemId}
+        onSuccess={handleSuccess}
+      />
     </LayoutWrapper>
   );
 }

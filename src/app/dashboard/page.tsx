@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import LayoutWrapper from '@/components/layout-wrapper';
+import StockInModal from '@/components/stock-in-modal';
 import { useApp } from '@/context/AppContext';
 import { 
   getDashboardSummaryMetrics, 
@@ -52,6 +53,8 @@ export default function DashboardPage() {
   const [lowStockItems, setLowStockItems] = useState<InventoryItem[]>([]);
   const [outOfStockCount, setOutOfStockCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
+  const [selectedItemIdForStockIn, setSelectedItemIdForStockIn] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -543,14 +546,24 @@ export default function DashboardPage() {
                         {t('Size', 'সাইজ')}: {formatSize(item.size)}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         item.current_stock === 0 
-                          ? 'bg-red-100 text-red-800' 
-                          : 'bg-yellow-100 text-yellow-800'
+                          ? 'bg-red-55/60 border border-red-100 text-red-750' 
+                          : 'bg-yellow-55/60 border border-yellow-100 text-yellow-750'
                       }`}>
                         {item.current_stock === 0 ? t('Out of Stock', 'স্টক নেই') : `${item.current_stock} / ${item.minimum_stock}`}
                       </span>
+                      <button
+                        onClick={() => {
+                          setSelectedItemIdForStockIn(item.id);
+                          setIsStockInModalOpen(true);
+                        }}
+                        className="p-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 hover:border-emerald-200 text-emerald-700 rounded-lg transition-colors cursor-pointer"
+                        title={t('Restock', 'স্টক ইন')}
+                      >
+                        <ArrowUpRight className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -559,6 +572,15 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      <StockInModal
+        isOpen={isStockInModalOpen}
+        onClose={() => {
+          setIsStockInModalOpen(false);
+          setSelectedItemIdForStockIn(undefined);
+        }}
+        preselectedItemId={selectedItemIdForStockIn}
+        onSuccess={() => setRefreshTrigger(prev => prev + 1)}
+      />
     </LayoutWrapper>
   );
 }

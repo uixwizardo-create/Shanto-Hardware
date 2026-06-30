@@ -72,6 +72,7 @@ function mapInventoryItem(item: any): InventoryItem {
   
   return {
     ...item,
+    category_id: item.category_id || '22222222-2222-2222-2222-000000000002',
     color_name: item.full_color_name || item.color_name_en || item.color_name,
     min_stock,
     price,
@@ -126,7 +127,7 @@ async function populateDynamicTransactionPrice(tx: StockTransaction): Promise<St
   try {
     const prices = await fetchPrices();
     const pricing = prices.find(p => 
-      p.category_id === tx.item!.category_id && 
+      p.category_id === (tx.item!.category_id || '22222222-2222-2222-2222-000000000002') && 
       (p.size_name_en === tx.item!.size || p.size_name_bn === tx.item!.size)
     );
     if (pricing) {
@@ -144,7 +145,7 @@ async function populateDynamicTransactionPrices(txs: StockTransaction[]): Promis
     txs.forEach(tx => {
       if (tx.item) {
         const pricing = prices.find(p => 
-          p.category_id === tx.item!.category_id && 
+          p.category_id === (tx.item!.category_id || '22222222-2222-2222-2222-000000000002') && 
           (p.size_name_en === tx.item!.size || p.size_name_bn === tx.item!.size)
         );
         if (pricing) {
@@ -1093,7 +1094,8 @@ function getLocalInventoryItems(): InventoryItem[] {
       status = 'Reorder';
     }
     
-    const category = categories.find(c => c.id === item.category_id);
+    const itemCategoryId = item.category_id || '22222222-2222-2222-2222-000000000002';
+    const category = categories.find(c => c.id === itemCategoryId);
     
     const mapped = mapInventoryItem({
       ...item,
@@ -1102,7 +1104,7 @@ function getLocalInventoryItems(): InventoryItem[] {
       total_stock_in,
       total_stock_out,
       total_adjustments,
-      category_id: item.category_id || null,
+      category_id: itemCategoryId,
       category_name_en: category ? category.name_en : undefined,
       category_name_bn: category ? category.name_bn : undefined,
       status
@@ -1110,7 +1112,7 @@ function getLocalInventoryItems(): InventoryItem[] {
 
     const pricing = prices.find(p => {
       const sz = sizes.find(s => s.id === p.size_id);
-      return p.category_id === item.category_id && 
+      return p.category_id === itemCategoryId && 
              sz && (sz.name_en === item.size || sz.name_bn === item.size);
     });
 
@@ -1268,7 +1270,7 @@ export async function fetchInventory(filters?: InventoryFilter): Promise<Invento
       const prices = await fetchPrices();
       items = items.map(item => {
         const pricing = prices.find(p => 
-          p.category_id === item.category_id && 
+          p.category_id === (item.category_id || '22222222-2222-2222-2222-000000000002') && 
           (p.size_name_en === item.size || p.size_name_bn === item.size)
         );
         if (pricing) {
@@ -1323,7 +1325,7 @@ export async function fetchInventory(filters?: InventoryFilter): Promise<Invento
       const prices = await fetchPrices();
       return mappedItems.map(item => {
         const pricing = prices.find(p => 
-          p.category_id === item.category_id && 
+          p.category_id === (item.category_id || '22222222-2222-2222-2222-000000000002') && 
           (p.size_name_en === item.size || p.size_name_bn === item.size)
         );
         if (pricing) {
@@ -1603,7 +1605,7 @@ export async function getDashboardSummaryMetrics(): Promise<DashboardSummary> {
       let price = 10.00;
       if (it) {
         const pricing = prices.find(p => 
-          p.category_id === it.category_id && 
+          p.category_id === (it.category_id || '22222222-2222-2222-2222-000000000002') && 
           (p.size_name_en === it.size || p.size_name_bn === it.size)
         );
         price = pricing ? pricing.selling_price : (SIZE_PRICES[it.size] || 10.00);
@@ -1652,16 +1654,14 @@ export async function getDashboardSummaryMetrics(): Promise<DashboardSummary> {
     const totalSalesCount = salesData.length;
     const totalSalesValue = (salesData as unknown as { quantity: number; item: { size: string; category_id: string | null } | null }[]).reduce((sum, t) => {
       const size = (t.item?.size || 'Gallon') as ItemSize;
-      const category_id = t.item?.category_id;
+      const category_id = t.item?.category_id || '22222222-2222-2222-2222-000000000002';
       let price = SIZE_PRICES[size] || 10.00;
-      if (category_id) {
-        const pricing = prices.find(p => 
-          p.category_id === category_id && 
-          (p.size_name_en === size || p.size_name_bn === size)
-        );
-        if (pricing) {
-          price = pricing.selling_price;
-        }
+      const pricing = prices.find(p => 
+        p.category_id === category_id && 
+        (p.size_name_en === size || p.size_name_bn === size)
+      );
+      if (pricing) {
+        price = pricing.selling_price;
       }
       return sum + (t.quantity * price);
     }, 0);
@@ -1719,16 +1719,14 @@ export async function fetchReports(filters?: ReportFilter): Promise<{
   const salesCount = sales.length;
   const salesValue = sales.reduce((sum, t) => {
     const size = t.item?.size || 'Gallon';
-    const category_id = t.item?.category_id;
+    const category_id = t.item?.category_id || '22222222-2222-2222-2222-000000000002';
     let price = SIZE_PRICES[size] || 10.00;
-    if (category_id) {
-      const pricing = prices.find(p => 
-        p.category_id === category_id && 
-        (p.size_name_en === size || p.size_name_bn === size)
-      );
-      if (pricing) {
-        price = pricing.selling_price;
-      }
+    const pricing = prices.find(p => 
+      p.category_id === category_id && 
+      (p.size_name_en === size || p.size_name_bn === size)
+    );
+    if (pricing) {
+      price = pricing.selling_price;
     }
     return sum + (t.quantity * price);
   }, 0);
@@ -2726,6 +2724,12 @@ export async function fetchPrices(): Promise<Pricing[]> {
         }
         console.error('Error fetching prices from Supabase:', error);
         throw error;
+      }
+      
+      if (data && data.length === 0) {
+        console.warn('Pricing table on Supabase is empty. Falling back to local storage defaults in-memory.');
+        const [categories, sizes] = await Promise.all([fetchCategories(), fetchSizes()]);
+        return getLocalPricesFallback(categories, sizes);
       }
       
       return (data || []).map((p: any) => ({

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import LayoutWrapper from '@/components/layout-wrapper';
+import StockInModal from '@/components/stock-in-modal';
 import { useApp } from '@/context/AppContext';
 import { fetchInventory, fetchSizes } from '@/lib/db';
 import { InventoryItem, ItemSize, Size } from '@/lib/types';
@@ -39,6 +40,10 @@ export default function StockAlertPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Modal State
+  const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
+  const [selectedItemIdForStockIn, setSelectedItemIdForStockIn] = useState<string | undefined>(undefined);
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState('');
@@ -284,8 +289,11 @@ export default function StockAlertPage() {
                           {item.notes || '—'}
                         </td>
                         <td className="py-4 px-5 text-right">
-                          <Link
-                            href={`/stock-in?itemId=${item.id}`}
+                          <button
+                            onClick={() => {
+                              setSelectedItemIdForStockIn(item.id);
+                              setIsStockInModalOpen(true);
+                            }}
                             className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all border shadow-sm cursor-pointer ${
                               isOutOfStock
                                 ? 'bg-rose-600 hover:bg-rose-500 border-rose-600 text-white hover:border-rose-500'
@@ -294,7 +302,7 @@ export default function StockAlertPage() {
                           >
                             <span>{t('Restock', 'স্টক ইন')}</span>
                             <ArrowUpRight className="w-3.5 h-3.5" />
-                          </Link>
+                          </button>
                         </td>
                       </tr>
                     );
@@ -305,6 +313,15 @@ export default function StockAlertPage() {
           )}
         </div>
       </div>
+      <StockInModal
+        isOpen={isStockInModalOpen}
+        onClose={() => {
+          setIsStockInModalOpen(false);
+          setSelectedItemIdForStockIn(undefined);
+        }}
+        preselectedItemId={selectedItemIdForStockIn}
+        onSuccess={loadAlertData}
+      />
     </LayoutWrapper>
   );
 }
