@@ -20,7 +20,9 @@ import {
   AlertTriangle,
   CheckCircle,
   Package,
-  ChevronDown
+  ChevronDown,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -29,6 +31,14 @@ interface ProductInfo {
   nameEn: string;
   nameBn: string;
   coverage: number; // sq ft per Liter for 1 coat
+}
+
+interface Room {
+  id: string;
+  length: string;
+  width: string;
+  height: string;
+  addCeiling: boolean;
 }
 
 export default function PaintCalculatorPage() {
@@ -79,11 +89,13 @@ export default function PaintCalculatorPage() {
   const [productId, setProductId] = useState<string>('ape_plastic');
   const [customCoverage, setCustomCoverage] = useState<number>(120);
 
-  // Dimensions
-  const [length, setLength] = useState<string>('');
-  const [width, setWidth] = useState<string>('');
-  const [height, setHeight] = useState<string>('');
-  const [addCeiling, setAddCeiling] = useState<boolean>(false);
+  // Multiple Rooms State (Default: One room)
+  const [rooms, setRooms] = useState<Room[]>([
+    { id: '1', length: '', width: '', height: '', addCeiling: false }
+  ]);
+
+  // Active room summary view ('all' or room index)
+  const [activeRoomView, setActiveRoomView] = useState<string>('all');
 
   // Deductions (Doors & Windows)
   const [doorWidth, setDoorWidth] = useState<string>('3');
@@ -104,16 +116,13 @@ export default function PaintCalculatorPage() {
   // Load from localStorage on mount
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('shanto_paint_calc_state');
+      const saved = localStorage.getItem('shanto_paint_calc_state_v2');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.productType !== undefined) setProductType(parsed.productType);
         if (parsed.productId !== undefined) setProductId(parsed.productId);
         if (parsed.customCoverage !== undefined) setCustomCoverage(parsed.customCoverage);
-        if (parsed.length !== undefined) setLength(parsed.length);
-        if (parsed.width !== undefined) setWidth(parsed.width);
-        if (parsed.height !== undefined) setHeight(parsed.height);
-        if (parsed.addCeiling !== undefined) setAddCeiling(parsed.addCeiling);
+        if (parsed.rooms !== undefined && Array.isArray(parsed.rooms)) setRooms(parsed.rooms);
         if (parsed.doorWidth !== undefined) setDoorWidth(parsed.doorWidth);
         if (parsed.doorHeight !== undefined) setDoorHeight(parsed.doorHeight);
         if (parsed.doorQty !== undefined) setDoorQty(parsed.doorQty);
@@ -134,10 +143,11 @@ export default function PaintCalculatorPage() {
     if (!isLoaded) return;
     try {
       const isDefaultState = 
-        length === '' &&
-        width === '' &&
-        height === '' &&
-        addCeiling === false &&
+        rooms.length === 1 &&
+        rooms[0].length === '' &&
+        rooms[0].width === '' &&
+        rooms[0].height === '' &&
+        rooms[0].addCeiling === false &&
         doorWidth === '3' &&
         doorHeight === '7' &&
         doorQty === '0' &&
@@ -151,16 +161,13 @@ export default function PaintCalculatorPage() {
         customCoverage === 120;
 
       if (isDefaultState) {
-        localStorage.removeItem('shanto_paint_calc_state');
+        localStorage.removeItem('shanto_paint_calc_state_v2');
       } else {
         const stateObj = {
           productType,
           productId,
           customCoverage,
-          length,
-          width,
-          height,
-          addCeiling,
+          rooms,
           doorWidth,
           doorHeight,
           doorQty,
@@ -170,7 +177,7 @@ export default function PaintCalculatorPage() {
           wallType,
           coats
         };
-        localStorage.setItem('shanto_paint_calc_state', JSON.stringify(stateObj));
+        localStorage.setItem('shanto_paint_calc_state_v2', JSON.stringify(stateObj));
       }
     } catch (e) {
       console.error('Failed to save paint calculator state:', e);
@@ -180,10 +187,7 @@ export default function PaintCalculatorPage() {
     productType,
     productId,
     customCoverage,
-    length,
-    width,
-    height,
-    addCeiling,
+    rooms,
     doorWidth,
     doorHeight,
     doorQty,
@@ -194,7 +198,34 @@ export default function PaintCalculatorPage() {
     coats
   ]);
 
-  // Resolve Active Coverage Rate (sq. ft per Liter)
+  // Room Management Handlers
+  const addRoom = () => {
+    const nextId = String(Date.now());
+    setRooms([...rooms, { id: nextId, length: '', width: '', height: '', addCeiling: false }]);
+  };
+
+  const removeRoom = (id: string) => {
+    if (rooms.length <= 1) return;
+    const remainingRooms = rooms.filter(r => r.id !== id);
+    setRooms(remainingRooms);
+    
+    // Shift or reset active room view if index is out of bounds
+    const indexToDelete = rooms.findIndex(r => r.id === id);
+    if (activeRoomView !== 'all') {
+      const activeIdx = parseInt(activeRoomView);
+      if (activeIdx === indexToDelete || activeIdx >= remainingRooms.length) {
+        setActiveRoomView('all');
+      } else if (activeIdx > indexToDelete) {
+        setActiveRoomView(String(activeIdx - 1));
+      }
+    }
+  };
+
+  const updateRoomField = (id: string, field: keyof Room, value: any) => {
+    setRooms(rooms.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  // Resolve Active Coverage Rate (sq. ft per Liter for 1 coat)
   let coverageRate = 150;
   if (productType === 'custom') {
     coverageRate = customCoverage || 1;
@@ -204,11 +235,7 @@ export default function PaintCalculatorPage() {
     coverageRate = prod ? prod.coverage : 150;
   }
 
-  // Dimension values (fall back to 0 if empty/invalid)
-  const dLength = parseFloat(length) || 0;
-  const dWidth = parseFloat(width) || 0;
-  const dHeight = parseFloat(height) || 0;
-
+  // Deductions values (Only apply deductions when viewing "All Rooms")
   const dDoorW = parseFloat(doorWidth) || 0;
   const dDoorH = parseFloat(doorHeight) || 0;
   const dDoorQty = parseFloat(doorQty) || 0;
@@ -217,26 +244,44 @@ export default function PaintCalculatorPage() {
   const dWinH = parseFloat(windowHeight) || 0;
   const dWinQty = parseFloat(windowQty) || 0;
 
-  // Areas
-  const wallArea = (dLength * dHeight * 2) + (dWidth * dHeight * 2);
-  const ceilingArea = addCeiling ? (dLength * dWidth) : 0;
-  const doorArea = dDoorW * dDoorH * dDoorQty;
-  const windowArea = dWinW * dWinH * dWinQty;
+  const doorArea = activeRoomView === 'all' ? (dDoorW * dDoorH * dDoorQty) : 0;
+  const windowArea = activeRoomView === 'all' ? (dWinW * dWinH * dWinQty) : 0;
+
+  // Calculate Wall & Ceiling Area based on selected view (All or specific index)
+  let wallArea = 0;
+  let ceilingArea = 0;
+
+  if (activeRoomView === 'all') {
+    rooms.forEach((r) => {
+      const dLength = parseFloat(r.length) || 0;
+      const dWidth = parseFloat(r.width) || 0;
+      const dHeight = parseFloat(r.height) || 0;
+
+      wallArea += (dLength * dHeight * 2) + (dWidth * dHeight * 2);
+      if (r.addCeiling) {
+        ceilingArea += (dLength * dWidth);
+      }
+    });
+  } else {
+    const rIdx = parseInt(activeRoomView) || 0;
+    const r = rooms[rIdx];
+    if (r) {
+      const dLength = parseFloat(r.length) || 0;
+      const dWidth = parseFloat(r.width) || 0;
+      const dHeight = parseFloat(r.height) || 0;
+
+      wallArea = (dLength * dHeight * 2) + (dWidth * dHeight * 2);
+      if (r.addCeiling) {
+        ceilingArea = (dLength * dWidth);
+      }
+    }
+  }
 
   // Net Area
   const totalNetArea = Math.max(0, (wallArea + ceilingArea) - (doorArea + windowArea));
 
   // Paint calculation
-  // coverageRate is for 1 coat. For N coats, coverage is coverageRate / N.
-  // Rough wall type increases consumption by 20%
   const roughnessMultiplier = wallType === 'rough' ? 1.2 : 1.0;
-  const wallCoverageOneCoat = wallArea / coverageRate;
-  const ceilingCoverageOneCoat = ceilingArea / coverageRate;
-
-  const wallPaintNeededLiters = (wallArea - (doorArea + windowArea)) > 0 
-    ? ((wallArea - (doorArea + windowArea)) / (coverageRate / coats)) * roughnessMultiplier 
-    : 0;
-  const ceilingPaintNeededLiters = (ceilingArea / (coverageRate / coats)) * roughnessMultiplier;
   const totalPaintNeededLiters = (totalNetArea / (coverageRate / coats)) * roughnessMultiplier;
 
   // Conversions
@@ -247,10 +292,8 @@ export default function PaintCalculatorPage() {
 
   // Reset function
   const handleClear = () => {
-    setLength('');
-    setWidth('');
-    setHeight('');
-    setAddCeiling(false);
+    setRooms([{ id: '1', length: '', width: '', height: '', addCeiling: false }]);
+    setActiveRoomView('all');
     setDoorWidth('3');
     setDoorHeight('7');
     setDoorQty('0');
@@ -263,7 +306,7 @@ export default function PaintCalculatorPage() {
     setProductId('ape_plastic');
     setCustomCoverage(120);
     try {
-      localStorage.removeItem('shanto_paint_calc_state');
+      localStorage.removeItem('shanto_paint_calc_state_v2');
     } catch (e) {
       console.error('Failed to clear paint calculator state:', e);
     }
@@ -298,7 +341,7 @@ export default function PaintCalculatorPage() {
       <div className="space-y-6 max-w-7xl mx-auto px-4 py-4 sm:px-6">
         
         {/* Page Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white border border-slate-200 p-6 rounded-2xl shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white border border-slate-200 p-6 rounded-2xl shadow-sm animate-fade-in">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-emerald-50 border border-emerald-250 rounded-xl text-emerald-600">
               <Calculator className="w-6 h-6" />
@@ -307,14 +350,14 @@ export default function PaintCalculatorPage() {
               <h1 className="text-xl font-bold text-slate-900 tracking-wide">
                 {t('Paint Estimate Calculator', 'পেইন্ট হিসাব ক্যালকুলেটর')}
               </h1>
-              <p className="text-xs text-slate-500">
-                {t('Calculate double-coat paint requirements, container sizes, and match stock.', 'ডাবল-কোট পেইন্টের প্রয়োজনীয়তা, কোটার সাইজ এবং শপ ইনভেন্টরি মিলিয়ে দেখুন।')}
+              <p className="text-xs text-slate-500 mt-0.5">
+                {t('Calculate paint requirements for multiple rooms, doors/windows deductions, and match shop stock.', 'একাধিক ঘরের পরিমাপ, দরজা-জানালার বাদ দেওয়া ক্ষেত্রফল এবং শপ ইনভেন্টরি মিলিয়ে দেখুন।')}
               </p>
             </div>
           </div>
           <button
             onClick={handleClear}
-            className="flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-650 hover:text-slate-800 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm"
+            className="flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-650 hover:text-slate-800 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm hover:shadow active:scale-95 shrink-0"
           >
             <Undo2 className="w-3.5 h-3.5" />
             <span>{t('Clear Calculator', 'ক্যালকুলেটর পরিষ্কার করুন')}</span>
@@ -328,7 +371,7 @@ export default function PaintCalculatorPage() {
           <div className="lg:col-span-8 space-y-6">
 
             {/* Step 1: Select Paint */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-fade-in">
               <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-4 flex items-center gap-3">
                 <span className="flex items-center justify-center w-6 h-6 text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
                   1
@@ -346,7 +389,7 @@ export default function PaintCalculatorPage() {
                     <select
                       value={productType}
                       onChange={(e) => setProductType(e.target.value)}
-                      className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
+                      className="w-full bg-white border border-slate-200 focus:border-emerald-555 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
                     >
                       <option value="interior">{t('Interior Paint / ঘরের ভেতরের রঙ', 'Interior Paint / ঘরের ভেতরের রঙ')}</option>
                       <option value="exterior">{t('Exterior Paint / ঘরের বাইরের রঙ', 'Exterior Paint / ঘরের বাইরের রঙ')}</option>
@@ -368,7 +411,7 @@ export default function PaintCalculatorPage() {
                       <select
                         value={productId}
                         onChange={(e) => setProductId(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-555 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
                       >
                         {(products[productType] || []).map((p) => (
                           <option key={p.id} value={p.id}>
@@ -398,71 +441,115 @@ export default function PaintCalculatorPage() {
               </div>
             </div>
 
-            {/* Step 2: Room Measurements */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-4 flex items-center gap-3">
-                <span className="flex items-center justify-center w-6 h-6 text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-                  2
-                </span>
-                <h2 className="text-sm font-bold text-slate-800 tracking-wide">
-                  {t('Step 2: Room Dimensions & Options', 'ধাপ ২: ঘরের পরিমাপ ও বিকল্পসমূহ')}
-                </h2>
+            {/* Step 2: Room Measurements (Dynamic Multi-room) */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-fade-in">
+              <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center justify-center w-6 h-6 text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
+                    2
+                  </span>
+                  <h2 className="text-sm font-bold text-slate-800 tracking-wide">
+                    {t('Step 2: Room Dimensions & Options', 'ধাপ ২: ঘরের পরিমাপ ও বিকল্পসমূহ')}
+                  </h2>
+                </div>
               </div>
               <div className="p-6 space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      {t('Length / দৈর্ঘ্য (ft)', 'Length / দৈর্ঘ্য (ফিট)')}
-                    </label>
-                    <input
-                      type="number"
-                      value={length}
-                      onChange={(e) => setLength(e.target.value)}
-                      placeholder="e.g. 15"
-                      className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-sm px-4 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      {t('Width / প্রস্থ (ft)', 'Width / প্রস্থ (ফিট)')}
-                    </label>
-                    <input
-                      type="number"
-                      value={width}
-                      onChange={(e) => setWidth(e.target.value)}
-                      placeholder="e.g. 12"
-                      className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-sm px-4 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      {t('Height / উচ্চতা (ft)', 'Height / উচ্চতা (ফিট)')}
-                    </label>
-                    <input
-                      type="number"
-                      value={height}
-                      onChange={(e) => setHeight(e.target.value)}
-                      placeholder="e.g. 10"
-                      className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-sm px-4 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
-                    />
-                  </div>
+                
+                {/* Rooms list */}
+                <div className="space-y-4">
+                  {rooms.map((room, index) => (
+                    <div key={room.id} className="p-4 bg-slate-50/30 border border-slate-200 rounded-2xl space-y-4 relative animate-fade-in">
+                      
+                      {/* Room Header with Delete option */}
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                          <Ruler className="w-4 h-4 text-emerald-600" />
+                          <span>{t(`Room ${index + 1}`, `ঘর ${index + 1}`)}</span>
+                        </span>
+                        {rooms.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeRoom(room.id)}
+                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title={t('Remove Room', 'ঘরটি বাদ দিন')}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Dimensions Input row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
+                            {t('Length / দৈর্ঘ্য (ft)', 'Length / দৈর্ঘ্য (ফিট)')}
+                          </label>
+                          <input
+                            type="number"
+                            value={room.length}
+                            onChange={(e) => updateRoomField(room.id, 'length', e.target.value)}
+                            placeholder="e.g. 15"
+                            className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-xs px-3.5 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
+                            {t('Width / প্রস্থ (ft)', 'Width / প্রস্থ (ফিট)')}
+                          </label>
+                          <input
+                            type="number"
+                            value={room.width}
+                            onChange={(e) => updateRoomField(room.id, 'width', e.target.value)}
+                            placeholder="e.g. 12"
+                            className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-xs px-3.5 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-550 mb-1.5">
+                            {t('Height / উচ্চতা (ft)', 'Height / উচ্চতা (ফিট)')}
+                          </label>
+                          <input
+                            type="number"
+                            value={room.height}
+                            onChange={(e) => updateRoomField(room.id, 'height', e.target.value)}
+                            placeholder="e.g. 10"
+                            className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-xs px-3.5 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Ceiling Checkbox for this specific room */}
+                      <div className="flex items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          id={`ceiling_toggle_${room.id}`}
+                          checked={room.addCeiling}
+                          onChange={(e) => updateRoomField(room.id, 'addCeiling', e.target.checked)}
+                          className="w-4 h-4 text-emerald-600 rounded border-slate-350 bg-white focus:ring-emerald-500/30 cursor-pointer"
+                        />
+                        <label htmlFor={`ceiling_toggle_${room.id}`} className="text-xs font-semibold text-slate-650 cursor-pointer select-none">
+                          {t('Calculate Ceiling Paint for this room', 'এই ঘরের জন্য সিলিং পেইন্ট অন্তর্ভুক্ত করুন')}
+                        </label>
+                      </div>
+
+                    </div>
+                  ))}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 p-4 rounded-xl border border-slate-200">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="ceiling_toggle"
-                      checked={addCeiling}
-                      onChange={(e) => setAddCeiling(e.target.checked)}
-                      className="w-4 h-4 text-emerald-600 rounded border-slate-300 bg-white focus:ring-emerald-500/30 cursor-pointer"
-                    />
-                    <label htmlFor="ceiling_toggle" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
-                      {t('Calculate Ceiling Paint / সিলিং পেইন্ট অন্তর্ভুক্ত করুন', 'সিলিং পেইন্ট অন্তর্ভুক্ত করুন')}
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs text-slate-500 font-semibold">{t('Surface:', 'দেয়ালের ধরণ:')}</span>
+                {/* Add Room Button */}
+                <button
+                  type="button"
+                  onClick={addRoom}
+                  className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/10 text-slate-650 hover:text-emerald-700 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer active:scale-98 shadow-sm hover:shadow"
+                >
+                  <Plus className="w-4.5 h-4.5" />
+                  <span>{t('Add Room / Space', 'নতুন ঘর যুক্ত করুন')}</span>
+                </button>
+
+                {/* Global Options (Light gray border-slate-100 instead of dark border-slate-150) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 border-t border-slate-100">
+                  <div className="flex items-center gap-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-200">
+                    <span className="text-xs text-slate-500 font-semibold shrink-0">{t('Surface:', 'দেয়ালের ধরণ:')}</span>
                     <div className="flex gap-4">
                       <label className="inline-flex items-center gap-1.5 cursor-pointer">
                         <input
@@ -480,35 +567,36 @@ export default function PaintCalculatorPage() {
                           onChange={() => setWallType('rough')}
                           className="text-emerald-600 focus:ring-emerald-500/30 bg-white border-slate-300 w-4 h-4"
                         />
-                        <span className="text-xs text-slate-700 font-medium">{t('Rough/Porous (+20%)', 'খসখসে/শোষক দেয়াল (+২০%)')}</span>
+                        <span className="text-xs text-slate-700 font-medium">{t('Rough Wall (+20%)', 'খসখসে দেয়াল (+২০%)')}</span>
                       </label>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-200">
+                    <span className="text-xs text-slate-500 font-semibold shrink-0">{t('Coats:', 'প্রলেপ (কোট):')}</span>
+                    <div className="flex gap-2">
+                      {[1, 2, 3].map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => setCoats(c)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                            coats === c
+                              ? 'bg-emerald-55 border-emerald-300 text-emerald-700 shadow-sm'
+                              : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-700'
+                          }`}
+                        >
+                          {c} {c === 1 ? t('Coat', 'কোট') : t('Coats', 'কোট')}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 bg-slate-50/50 p-4 rounded-xl border border-slate-200">
-                  <span className="text-xs text-slate-500 font-semibold">{t('Number of Paint Coats:', 'পেইন্টের প্রলেপ (কোট) সংখ্যা:')}</span>
-                  <div className="flex gap-2">
-                    {[1, 2, 3].map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => setCoats(c)}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
-                          coats === c
-                            ? 'bg-emerald-55 border-emerald-300 text-emerald-700 shadow-sm'
-                            : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-700'
-                        }`}
-                      >
-                        {c} {c === 1 ? t('Coat', 'কোট') : t('Coats', 'কোট')}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             </div>
 
             {/* Step 3: Deductions (Doors & Windows) */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-fade-in">
               <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-4 flex items-center gap-3">
                 <span className="flex items-center justify-center w-6 h-6 text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
                   3
@@ -541,7 +629,7 @@ export default function PaintCalculatorPage() {
                         type="number"
                         value={doorHeight}
                         onChange={(e) => setDoorHeight(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-850 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                       />
                     </div>
                     <div>
@@ -550,7 +638,7 @@ export default function PaintCalculatorPage() {
                         type="number"
                         value={doorQty}
                         onChange={(e) => setDoorQty(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-850 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                       />
                     </div>
                   </div>
@@ -578,7 +666,7 @@ export default function PaintCalculatorPage() {
                         type="number"
                         value={windowHeight}
                         onChange={(e) => setWindowHeight(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-850 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                       />
                     </div>
                     <div>
@@ -587,7 +675,7 @@ export default function PaintCalculatorPage() {
                         type="number"
                         value={windowQty}
                         onChange={(e) => setWindowQty(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-500 text-slate-800 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-850 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                       />
                     </div>
                   </div>
@@ -597,7 +685,7 @@ export default function PaintCalculatorPage() {
             </div>
 
             {/* Step 4: Real-time Stock Matcher */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden animate-fade-in">
               <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-4 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span className="flex items-center justify-center w-6 h-6 text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
@@ -652,21 +740,21 @@ export default function PaintCalculatorPage() {
                                     : item.current_stock <= item.minimum_stock
                                     ? 'text-amber-500'
                                     : 'text-emerald-600'
-                                }`}>
+                                  }`}>
                                   {item.current_stock}
                                 </span>
                               </div>
                               <div className="flex gap-1.5">
                                 <Link
                                   href={`/stock-in?color=${encodeURIComponent(item.color_name_en)}&size=${encodeURIComponent(item.size)}`}
-                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1.5 bg-emerald-55 hover:bg-emerald-100 text-emerald-600 border border-emerald-250 rounded-lg transition-colors cursor-pointer"
                                   title={t('Restock', 'স্টক ইন')}
                                 >
                                   <ArrowUpRight className="w-3.5 h-3.5" />
                                 </Link>
                                 <Link
                                   href={`/stock-out?color=${encodeURIComponent(item.color_name_en)}&size=${encodeURIComponent(item.size)}`}
-                                  className="p-1.5 bg-rose-55 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                                  className="p-1.5 bg-rose-55 hover:bg-rose-100 text-rose-600 border border-rose-250 rounded-lg transition-colors cursor-pointer"
                                   title={t('Sell', 'স্টক আউট')}
                                 >
                                   <ArrowDownLeft className="w-3.5 h-3.5" />
@@ -692,7 +780,7 @@ export default function PaintCalculatorPage() {
           <div className="lg:col-span-4 space-y-6">
 
             {/* Calculations Card */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden lg:sticky lg:top-4">
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden lg:sticky lg:top-4 animate-fade-in">
               <div className="border-b border-slate-200 bg-slate-50 px-5 py-4 flex items-center gap-2.5">
                 <Paintbrush className="w-5 h-5 text-emerald-650" />
                 <h2 className="text-sm font-bold text-slate-800 tracking-wide">
@@ -702,20 +790,49 @@ export default function PaintCalculatorPage() {
 
               <div className="p-6 space-y-6">
                 
+                {/* ROOM VIEWER SELECTOR */}
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                    {t('Select View / হিসাবের ধরন', 'হিসাবের ধরন')}
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={activeRoomView}
+                      onChange={(e) => setActiveRoomView(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 text-slate-805 text-xs pl-3.5 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer font-semibold"
+                    >
+                      <option value="all">{t('All Rooms / সকল ঘর', 'সকল ঘর (মোট হিসাব)')}</option>
+                      {rooms.map((room, index) => (
+                        <option key={room.id} value={index}>
+                          {language === 'en' ? `Room ${index + 1}` : `ঘর ${index + 1}`}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400">
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                </div>
+
                 {/* BIG LITERS DISPLAY */}
                 <div className="relative overflow-hidden bg-emerald-50/50 border border-emerald-100 p-5 rounded-2xl flex flex-col items-center text-center">
                   <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider mb-2">
                     {t('Total Paint Required', 'সর্বমোট প্রয়োজনীয় পেইন্ট')}
                   </span>
                   <div className="flex items-baseline gap-1.5 justify-center">
-                    <span className="text-4xl font-extrabold text-emerald-700 font-mono tracking-tight">
+                    <span className="text-4xl font-extrabold text-emerald-700 font-mono tracking-tight animate-fade-in">
                       {totalPaintNeededLiters.toFixed(2)}
                     </span>
                     <span className="text-lg font-bold text-emerald-800 font-sans">
                       {t('Liters', 'লিটার')}
                     </span>
                   </div>
-                  <div className="mt-3 flex flex-wrap justify-center gap-2 text-[10px] font-semibold text-slate-600">
+                  <div className="mt-3 flex flex-wrap justify-center gap-2 text-[10px] font-semibold text-slate-650">
+                    <span className="bg-white/80 border border-slate-200/60 px-2 py-0.5 rounded-full">
+                      {activeRoomView === 'all' 
+                        ? `${rooms.length} ${rooms.length === 1 ? t('Room', 'ঘর') : t('Rooms', 'ঘর')}` 
+                        : (language === 'en' ? `Room ${parseInt(activeRoomView) + 1}` : `ঘর ${parseInt(activeRoomView) + 1}`)}
+                    </span>
                     <span className="bg-white/80 border border-slate-200/60 px-2 py-0.5 rounded-full">
                       {coats} {coats === 1 ? t('Coat', 'কোট') : t('Coats', 'কোট')}
                     </span>
@@ -732,26 +849,26 @@ export default function PaintCalculatorPage() {
                   </span>
                   
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
-                    <div className="flex justify-between items-center text-slate-600">
+                    <div className="flex justify-between items-center text-slate-655">
                       <span>{t('Wall Area:', 'দেয়ালের ক্ষেত্রফল:')}</span>
-                      <span className="font-semibold text-slate-800 font-mono">{wallArea.toFixed(1)} sq.ft</span>
+                      <span className="font-semibold text-slate-805 font-mono">{wallArea.toFixed(1)} sq.ft</span>
                     </div>
 
-                    {addCeiling && (
-                      <div className="flex justify-between items-center text-slate-600">
+                    {ceilingArea > 0 && (
+                      <div className="flex justify-between items-center text-slate-655">
                         <span>{t('Ceiling Area:', 'সিলিংয়ের ক্ষেত্রফল:')}</span>
-                        <span className="font-semibold text-slate-800 font-mono">+{ceilingArea.toFixed(1)} sq.ft</span>
+                        <span className="font-semibold text-slate-805 font-mono">+{ceilingArea.toFixed(1)} sq.ft</span>
                       </div>
                     )}
 
-                    {(doorArea > 0 || windowArea > 0) && (
-                      <div className="flex justify-between items-center text-slate-600">
+                    {activeRoomView === 'all' && (doorArea > 0 || windowArea > 0) && (
+                      <div className="flex justify-between items-center text-slate-655">
                         <span>{t('Deductions (Doors & Windows):', 'বাদ দেওয়ার অংশসমূহ:')}</span>
                         <span className="font-semibold text-rose-600 font-mono">-{ (doorArea + windowArea).toFixed(1) } sq.ft</span>
                       </div>
                     )}
 
-                    <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-slate-800 font-bold">
+                    <div className="border-t border-slate-200 pt-2 flex justify-between items-center text-slate-850 font-bold">
                       <span>{t('Net Paintable Area:', 'মোট পেইন্টযোগ্য ক্ষেত্রফল:')}</span>
                       <span className="font-mono text-slate-900">{totalNetArea.toFixed(1)} sq.ft</span>
                     </div>
@@ -768,11 +885,11 @@ export default function PaintCalculatorPage() {
                   <div className="grid grid-cols-2 gap-3">
                     {/* Gallons */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-500 block mb-1">
+                      <span className="text-[10px] font-bold text-slate-550 block mb-1">
                         {t('Gallons (3.64L)', 'গ্যালন (৩.৬৪ লি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-sm font-bold text-slate-800 font-mono">
+                        <span className="text-sm font-bold text-slate-805 font-mono">
                           ~{neededGallons.toFixed(1)}
                         </span>
                         <span className="text-[10px] text-slate-500 font-sans">{t('Pcs', 'পিস')}</span>
@@ -781,11 +898,11 @@ export default function PaintCalculatorPage() {
 
                     {/* 2 Pound */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-500 block mb-1">
+                      <span className="text-[10px] font-bold text-slate-550 block mb-1">
                         {t('2 Pound (.91L)', '২ পাউন্ড (.৯১ লি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-sm font-bold text-slate-800 font-mono">
+                        <span className="text-sm font-bold text-slate-855 font-mono">
                           ~{needed2Pound.toFixed(1)}
                         </span>
                         <span className="text-[10px] text-slate-500 font-sans">{t('Pcs', 'পিস')}</span>
@@ -794,11 +911,11 @@ export default function PaintCalculatorPage() {
 
                     {/* Half Liter */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-500 block mb-1">
+                      <span className="text-[10px] font-bold text-slate-550 block mb-1">
                         {t('Half Liter (0.5L)', 'হাফ লিটার (০.৫ লি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-sm font-bold text-slate-800 font-mono">
+                        <span className="text-sm font-bold text-slate-855 font-mono">
                           ~{neededHalfLiter.toFixed(1)}
                         </span>
                         <span className="text-[10px] text-slate-500 font-sans">{t('Pcs', 'পিস')}</span>
@@ -807,11 +924,11 @@ export default function PaintCalculatorPage() {
 
                     {/* Half Pound */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-500 block mb-1">
+                      <span className="text-[10px] font-bold text-slate-550 block mb-1">
                         {t('Half Pound (200ML)', 'হাফ পাউন্ড (২০০মি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-sm font-bold text-slate-800 font-mono">
+                        <span className="text-sm font-bold text-slate-855 font-mono">
                           ~{neededHalfPound.toFixed(1)}
                         </span>
                         <span className="text-[10px] text-slate-500 font-sans">{t('Pcs', 'পিস')}</span>
@@ -821,7 +938,7 @@ export default function PaintCalculatorPage() {
                 </div>
 
                 {/* Important notice / tips */}
-                <div className="bg-amber-50/50 p-3.5 rounded-xl border border-amber-200/60 text-[10px] text-amber-900 space-y-1.5 shadow-sm">
+                <div className="bg-amber-50/50 p-3.5 rounded-xl border border-amber-250/60 text-[10px] text-amber-900 space-y-1.5 shadow-sm">
                   <div className="flex gap-1.5">
                     <span className="text-amber-600 font-bold shrink-0">⚠️</span>
                     <p className="leading-relaxed">

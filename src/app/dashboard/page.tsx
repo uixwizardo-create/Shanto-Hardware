@@ -294,6 +294,13 @@ export default function DashboardPage() {
               <span className="font-semibold text-emerald-600">{salesTxCount}</span>
               <span>{t('sales transactions', 'টি বিক্রয় সম্পন্ন')}</span>
             </div>
+            <Link
+              href="/stock-out"
+              className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-0.5 absolute bottom-5 right-5 cursor-pointer z-10"
+            >
+              <span>{t('View', 'দেখুন')}</span>
+              <span>&rarr;</span>
+            </Link>
           </div>
 
           {/* Card 3: Stock Alert with redirect link */}
