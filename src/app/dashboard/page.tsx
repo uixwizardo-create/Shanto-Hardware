@@ -538,30 +538,32 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
-                {lowStockItems.slice(0, 5).map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-3 bg-rose-50/40 border border-rose-100 rounded-xl">
-                    <div>
-                      <p className="text-xs font-semibold text-slate-800">{item.color_name_en}</p>
+                 {lowStockItems.slice(0, 5).map((item) => (
+                  <div key={item.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-50/80 transition-colors">
+                    <div className="min-w-0 flex-1 pr-2">
+                      <p className="text-xs font-semibold text-slate-800 truncate" title={item.full_color_name || item.color_name_en}>
+                        {item.full_color_name || item.color_name_en}
+                      </p>
                       <p className="text-[10px] text-slate-400 mt-0.5">
                         {t('Size', 'সাইজ')}: {formatSize(item.size)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                         item.current_stock === 0 
-                          ? 'bg-red-55/60 border border-red-100 text-red-750' 
-                          : 'bg-yellow-55/60 border border-yellow-100 text-yellow-750'
+                          ? 'bg-rose-105/90 text-rose-700 border-rose-200' 
+                          : 'bg-amber-100 text-amber-805 border-amber-200'
                       }`}>
-                        {item.current_stock === 0 ? t('Out of Stock', 'স্টক নেই') : `${item.current_stock} / ${item.minimum_stock}`}
+                        {item.current_stock === 0 ? t('Out of Stock', 'স্টক নেই') : `${t('Stock', 'মজুদ')}: ${item.current_stock} / ${item.minimum_stock}`}
                       </span>
                       <button
                         onClick={() => {
                           setSelectedItemIdForStockIn(item.id);
                           setIsStockInModalOpen(true);
                         }}
-                        className="p-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 hover:border-emerald-200 text-emerald-700 rounded-lg transition-colors cursor-pointer"
-                        title={t('Restock', 'স্টক ইন')}
+                        className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] sm:text-xs font-semibold px-2.5 py-1.5 rounded-xl transition-all shadow-sm hover:shadow hover:shadow-emerald-600/10 active:scale-95 cursor-pointer shrink-0"
                       >
+                        <span>{t('Stock In', 'স্টক ইন')}</span>
                         <ArrowUpRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
