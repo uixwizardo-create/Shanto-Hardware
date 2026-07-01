@@ -39,6 +39,7 @@ interface Room {
   width: string;
   height: string;
   addCeiling: boolean;
+  active: boolean; // toggle to include/exclude from total calculations
 }
 
 export default function PaintCalculatorPage() {
@@ -69,7 +70,7 @@ export default function PaintCalculatorPage() {
   const products: Record<string, ProductInfo[]> = {
     interior: [
       { id: 'ape_plastic', nameEn: 'APE Plastic Paint', nameBn: 'এপিই প্লাস্টিক পেইন্ট', coverage: 165 },
-      { id: 'distemper', nameEn: 'Acroflat SPD (Distemper)', nameBn: 'অ্যাক্রোফ্ল্যাট এসপিডি (ডিস্টেম্পার)', coverage: 145 },
+      { id: 'distemper', nameEn: 'Acroflat SPD (Distemper)', nameBn: 'অ্যাক্রোф্ল্যাট এসপিডি (ডিস্টেম্পার)', coverage: 145 },
       { id: 'silk_emulsion', nameEn: 'Feather Silk Emulsion', nameBn: 'ফেদার সিল্ক ইমালশন', coverage: 175 }
     ],
     exterior: [
@@ -91,7 +92,7 @@ export default function PaintCalculatorPage() {
 
   // Multiple Rooms State (Default: One room)
   const [rooms, setRooms] = useState<Room[]>([
-    { id: '1', length: '', width: '', height: '', addCeiling: false }
+    { id: '1', length: '', width: '', height: '', addCeiling: false, active: true }
   ]);
 
   // Active room summary view ('all' or room index)
@@ -116,13 +117,20 @@ export default function PaintCalculatorPage() {
   // Load from localStorage on mount
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('shanto_paint_calc_state_v2');
+      const saved = localStorage.getItem('shanto_paint_calc_state_v3');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.productType !== undefined) setProductType(parsed.productType);
         if (parsed.productId !== undefined) setProductId(parsed.productId);
         if (parsed.customCoverage !== undefined) setCustomCoverage(parsed.customCoverage);
-        if (parsed.rooms !== undefined && Array.isArray(parsed.rooms)) setRooms(parsed.rooms);
+        if (parsed.rooms !== undefined && Array.isArray(parsed.rooms)) {
+          // Normalize rooms to ensure active is defined
+          const loadedRooms = parsed.rooms.map((r: any) => ({
+            ...r,
+            active: r.active !== undefined ? r.active : true
+          }));
+          setRooms(loadedRooms);
+        }
         if (parsed.doorWidth !== undefined) setDoorWidth(parsed.doorWidth);
         if (parsed.doorHeight !== undefined) setDoorHeight(parsed.doorHeight);
         if (parsed.doorQty !== undefined) setDoorQty(parsed.doorQty);
@@ -148,6 +156,7 @@ export default function PaintCalculatorPage() {
         rooms[0].width === '' &&
         rooms[0].height === '' &&
         rooms[0].addCeiling === false &&
+        rooms[0].active === true &&
         doorWidth === '3' &&
         doorHeight === '7' &&
         doorQty === '0' &&
@@ -161,7 +170,7 @@ export default function PaintCalculatorPage() {
         customCoverage === 120;
 
       if (isDefaultState) {
-        localStorage.removeItem('shanto_paint_calc_state_v2');
+        localStorage.removeItem('shanto_paint_calc_state_v3');
       } else {
         const stateObj = {
           productType,
@@ -177,7 +186,7 @@ export default function PaintCalculatorPage() {
           wallType,
           coats
         };
-        localStorage.setItem('shanto_paint_calc_state_v2', JSON.stringify(stateObj));
+        localStorage.setItem('shanto_paint_calc_state_v3', JSON.stringify(stateObj));
       }
     } catch (e) {
       console.error('Failed to save paint calculator state:', e);
@@ -201,7 +210,7 @@ export default function PaintCalculatorPage() {
   // Room Management Handlers
   const addRoom = () => {
     const nextId = String(Date.now());
-    setRooms([...rooms, { id: nextId, length: '', width: '', height: '', addCeiling: false }]);
+    setRooms([...rooms, { id: nextId, length: '', width: '', height: '', addCeiling: false, active: true }]);
   };
 
   const removeRoom = (id: string) => {
@@ -247,12 +256,15 @@ export default function PaintCalculatorPage() {
   const doorArea = activeRoomView === 'all' ? (dDoorW * dDoorH * dDoorQty) : 0;
   const windowArea = activeRoomView === 'all' ? (dWinW * dWinH * dWinQty) : 0;
 
-  // Calculate Wall & Ceiling Area based on selected view (All or specific index)
+  // Calculate Wall & Ceiling Area based on selected view (All active rooms or specific index)
   let wallArea = 0;
   let ceilingArea = 0;
+  let activeRoomsCount = 0;
 
   if (activeRoomView === 'all') {
     rooms.forEach((r) => {
+      if (!r.active) return; // Skip inactive rooms in the combined sum
+      activeRoomsCount++;
       const dLength = parseFloat(r.length) || 0;
       const dWidth = parseFloat(r.width) || 0;
       const dHeight = parseFloat(r.height) || 0;
@@ -266,6 +278,7 @@ export default function PaintCalculatorPage() {
     const rIdx = parseInt(activeRoomView) || 0;
     const r = rooms[rIdx];
     if (r) {
+      activeRoomsCount = 1;
       const dLength = parseFloat(r.length) || 0;
       const dWidth = parseFloat(r.width) || 0;
       const dHeight = parseFloat(r.height) || 0;
@@ -285,6 +298,7 @@ export default function PaintCalculatorPage() {
   const totalPaintNeededLiters = (totalNetArea / (coverageRate / coats)) * roughnessMultiplier;
 
   // Conversions
+  const neededDrums = totalPaintNeededLiters / 18.0;
   const neededGallons = totalPaintNeededLiters / 3.64;
   const needed2Pound = totalPaintNeededLiters / 0.91;
   const neededHalfLiter = totalPaintNeededLiters / 0.5;
@@ -292,7 +306,7 @@ export default function PaintCalculatorPage() {
 
   // Reset function
   const handleClear = () => {
-    setRooms([{ id: '1', length: '', width: '', height: '', addCeiling: false }]);
+    setRooms([{ id: '1', length: '', width: '', height: '', addCeiling: false, active: true }]);
     setActiveRoomView('all');
     setDoorWidth('3');
     setDoorHeight('7');
@@ -306,7 +320,7 @@ export default function PaintCalculatorPage() {
     setProductId('ape_plastic');
     setCustomCoverage(120);
     try {
-      localStorage.removeItem('shanto_paint_calc_state_v2');
+      localStorage.removeItem('shanto_paint_calc_state_v3');
     } catch (e) {
       console.error('Failed to clear paint calculator state:', e);
     }
@@ -357,7 +371,7 @@ export default function PaintCalculatorPage() {
           </div>
           <button
             onClick={handleClear}
-            className="flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-650 hover:text-slate-800 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm hover:shadow active:scale-95 shrink-0"
+            className="flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-655 hover:text-slate-800 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-sm hover:shadow active:scale-95 shrink-0"
           >
             <Undo2 className="w-3.5 h-3.5" />
             <span>{t('Clear Calculator', 'ক্যালকুলেটর পরিষ্কার করুন')}</span>
@@ -389,7 +403,7 @@ export default function PaintCalculatorPage() {
                     <select
                       value={productType}
                       onChange={(e) => setProductType(e.target.value)}
-                      className="w-full bg-white border border-slate-200 focus:border-emerald-555 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
+                      className="w-full bg-white border border-slate-200 focus:border-emerald-555 text-slate-808 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
                     >
                       <option value="interior">{t('Interior Paint / ঘরের ভেতরের রঙ', 'Interior Paint / ঘরের ভেতরের রঙ')}</option>
                       <option value="exterior">{t('Exterior Paint / ঘরের বাইরের রঙ', 'Exterior Paint / ঘরের বাইরের রঙ')}</option>
@@ -411,7 +425,7 @@ export default function PaintCalculatorPage() {
                       <select
                         value={productId}
                         onChange={(e) => setProductId(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-555 text-slate-800 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-555 text-slate-808 text-sm pl-4 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer"
                       >
                         {(products[productType] || []).map((p) => (
                           <option key={p.id} value={p.id}>
@@ -458,14 +472,30 @@ export default function PaintCalculatorPage() {
                 {/* Rooms list */}
                 <div className="space-y-4">
                   {rooms.map((room, index) => (
-                    <div key={room.id} className="p-4 bg-slate-50/30 border border-slate-200 rounded-2xl space-y-4 relative animate-fade-in">
+                    <div 
+                      key={room.id} 
+                      className={`p-4 border rounded-2xl space-y-4 relative animate-fade-in transition-all duration-200 ${
+                        room.active 
+                          ? 'bg-slate-50/30 border-slate-200' 
+                          : 'bg-slate-100/40 border-slate-200/60 opacity-60 saturate-50'
+                      }`}
+                    >
                       
-                      {/* Room Header with Delete option */}
+                      {/* Room Header with Checkbox to toggle inclusion & Delete option */}
                       <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                        <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                          <Ruler className="w-4 h-4 text-emerald-600" />
-                          <span>{t(`Room ${index + 1}`, `ঘর ${index + 1}`)}</span>
-                        </span>
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={room.active}
+                            onChange={(e) => updateRoomField(room.id, 'active', e.target.checked)}
+                            className="w-4 h-4 text-emerald-600 rounded border-slate-350 bg-white focus:ring-emerald-500/30 cursor-pointer"
+                            title={t('Include in calculations / মোট হিসাবে অন্তর্ভুক্ত করুন', 'মোট হিসাবে অন্তর্ভুক্ত করুন')}
+                          />
+                          <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 select-none">
+                            <Ruler className="w-4 h-4 text-emerald-600" />
+                            <span>{t(`Room ${index + 1}`, `ঘর ${index + 1}`)}</span>
+                          </span>
+                        </div>
                         {rooms.length > 1 && (
                           <button
                             type="button"
@@ -540,13 +570,13 @@ export default function PaintCalculatorPage() {
                 <button
                   type="button"
                   onClick={addRoom}
-                  className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/10 text-slate-650 hover:text-emerald-700 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer active:scale-98 shadow-sm hover:shadow"
+                  className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-300 hover:border-emerald-500 bg-white hover:bg-emerald-50/10 text-slate-655 hover:text-emerald-700 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer active:scale-98 shadow-sm hover:shadow"
                 >
                   <Plus className="w-4.5 h-4.5" />
                   <span>{t('Add Room / Space', 'নতুন ঘর যুক্ত করুন')}</span>
                 </button>
 
-                {/* Global Options (Light gray border-slate-100 instead of dark border-slate-150) */}
+                {/* Global Options */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 border-t border-slate-100">
                   <div className="flex items-center gap-4 bg-slate-50/50 p-4 rounded-2xl border border-slate-200">
                     <span className="text-xs text-slate-500 font-semibold shrink-0">{t('Surface:', 'দেয়ালের ধরণ:')}</span>
@@ -666,7 +696,7 @@ export default function PaintCalculatorPage() {
                         type="number"
                         value={windowHeight}
                         onChange={(e) => setWindowHeight(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-850 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-855 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                       />
                     </div>
                     <div>
@@ -675,7 +705,7 @@ export default function PaintCalculatorPage() {
                         type="number"
                         value={windowQty}
                         onChange={(e) => setWindowQty(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-emerald-550 text-slate-850 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
+                        className="w-full bg-white border border-slate-200 focus:border-emerald-555 text-slate-855 text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500/10 transition-all"
                       />
                     </div>
                   </div>
@@ -691,7 +721,7 @@ export default function PaintCalculatorPage() {
                   <span className="flex items-center justify-center w-6 h-6 text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
                     4
                   </span>
-                  <h2 className="text-sm font-bold text-slate-800 tracking-wide">
+                  <h2 className="text-sm font-bold text-slate-805 tracking-wide">
                     {t('Step 4: Check Shop Stock for Color', 'ধাপ ৪: শপে কালার স্টক পরীক্ষা করুন')}
                   </h2>
                 </div>
@@ -801,10 +831,16 @@ export default function PaintCalculatorPage() {
                       onChange={(e) => setActiveRoomView(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 focus:border-emerald-500 text-slate-805 text-xs pl-3.5 pr-10 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500/10 appearance-none transition-all cursor-pointer font-semibold"
                     >
-                      <option value="all">{t('All Rooms / সকল ঘর', 'সকল ঘর (মোট হিসাব)')}</option>
+                      <option value="all">
+                        {language === 'en' 
+                          ? `All Active Rooms (${activeRoomsCount} Rooms)` 
+                          : `সক্রিয় ঘরসমূহ (মোট ${activeRoomsCount} ঘর)`}
+                      </option>
                       {rooms.map((room, index) => (
                         <option key={room.id} value={index}>
-                          {language === 'en' ? `Room ${index + 1}` : `ঘর ${index + 1}`}
+                          {language === 'en' 
+                            ? `Room ${index + 1} ${!room.active ? ' (Excluded)' : ''}` 
+                            : `ঘর ${index + 1} ${!room.active ? ' (হিসাবের বাইরে)' : ''}`}
                         </option>
                       ))}
                     </select>
@@ -820,7 +856,7 @@ export default function PaintCalculatorPage() {
                     {t('Total Paint Required', 'সর্বমোট প্রয়োজনীয় পেইন্ট')}
                   </span>
                   <div className="flex items-baseline gap-1.5 justify-center">
-                    <span className="text-4xl font-extrabold text-emerald-700 font-mono tracking-tight animate-fade-in">
+                    <span className="text-4xl font-extrabold text-emerald-700 font-mono tracking-tight animate-fade-in font-sans">
                       {totalPaintNeededLiters.toFixed(2)}
                     </span>
                     <span className="text-lg font-bold text-emerald-800 font-sans">
@@ -830,7 +866,7 @@ export default function PaintCalculatorPage() {
                   <div className="mt-3 flex flex-wrap justify-center gap-2 text-[10px] font-semibold text-slate-650">
                     <span className="bg-white/80 border border-slate-200/60 px-2 py-0.5 rounded-full">
                       {activeRoomView === 'all' 
-                        ? `${rooms.length} ${rooms.length === 1 ? t('Room', 'ঘর') : t('Rooms', 'ঘর')}` 
+                        ? `${activeRoomsCount} ${activeRoomsCount === 1 ? t('Room', 'ঘর') : t('Rooms', 'ঘর')}` 
                         : (language === 'en' ? `Room ${parseInt(activeRoomView) + 1}` : `ঘর ${parseInt(activeRoomView) + 1}`)}
                     </span>
                     <span className="bg-white/80 border border-slate-200/60 px-2 py-0.5 rounded-full">
@@ -883,13 +919,29 @@ export default function PaintCalculatorPage() {
                   </span>
 
                   <div className="grid grid-cols-2 gap-3">
+                    {/* Drum (18L) */}
+                    <div className="col-span-2 bg-emerald-50/15 border border-emerald-200/60 p-3.5 rounded-xl flex justify-between items-center shadow-sm">
+                      <div>
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                          {t('Drum (18L)', 'ড্রাম (১৮ লি.)')}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-semibold">{t('Bulk Pack', 'বড় প্রজেক্টের জন্য')}</span>
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-base font-extrabold text-emerald-700 font-mono">
+                          ~{neededDrums.toFixed(1)}
+                        </span>
+                        <span className="text-[10px] text-emerald-800 font-semibold">{t('Pcs', 'পিস')}</span>
+                      </div>
+                    </div>
+
                     {/* Gallons */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
                       <span className="text-[10px] font-bold text-slate-550 block mb-1">
                         {t('Gallons (3.64L)', 'গ্যালন (৩.৬৪ লি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
-                        <span className="text-sm font-bold text-slate-805 font-mono">
+                        <span className="text-sm font-bold text-slate-855 font-mono">
                           ~{neededGallons.toFixed(1)}
                         </span>
                         <span className="text-[10px] text-slate-500 font-sans">{t('Pcs', 'পিস')}</span>
@@ -898,7 +950,7 @@ export default function PaintCalculatorPage() {
 
                     {/* 2 Pound */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-550 block mb-1">
+                      <span className="text-[10px] font-bold text-slate-555 block mb-1">
                         {t('2 Pound (.91L)', '২ পাউন্ড (.৯১ লি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
@@ -911,7 +963,7 @@ export default function PaintCalculatorPage() {
 
                     {/* Half Liter */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-550 block mb-1">
+                      <span className="text-[10px] font-bold text-slate-555 block mb-1">
                         {t('Half Liter (0.5L)', 'হাফ লিটার (০.৫ লি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
@@ -924,7 +976,7 @@ export default function PaintCalculatorPage() {
 
                     {/* Half Pound */}
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex flex-col justify-between shadow-sm">
-                      <span className="text-[10px] font-bold text-slate-550 block mb-1">
+                      <span className="text-[10px] font-bold text-slate-555 block mb-1">
                         {t('Half Pound (200ML)', 'হাফ পাউন্ড (২০০মি.)')}
                       </span>
                       <div className="flex items-baseline gap-1 mt-1">
